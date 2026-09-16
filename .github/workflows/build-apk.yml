@@ -28,32 +28,36 @@ jobs:
       - name: Verify Flutter & Android Setup
         run: flutter doctor -v
 
-      - name: Prepare Clean Android Platform
+      - name: Scaffold Official Android Platform & Integrate Native Services
+        working-directory: flutter_expense_tracker
         run: |
-          # 1. Back up our custom native Android files
-          mkdir -p /tmp/custom_code
-          cp -r flutter_expense_tracker/android/app/src/main/kotlin /tmp/custom_code/
-          cp flutter_expense_tracker/android/app/src/main/AndroidManifest.xml /tmp/custom_code/
+          set -e
+          echo "==> Backing up custom native Kotlin code and manifest..."
+          mkdir -p /tmp/native_backup
+          cp -r android/app/src/main/kotlin/com/personal/upiexpensetracker /tmp/native_backup/
+          cp android/app/src/main/AndroidManifest.xml /tmp/native_backup/
 
-          # 2. Generate a fresh, compatible Android scaffold using the exact Flutter SDK on the runner
-          flutter create --org com.personal.upiexpensetracker --project-name upi_expense_tracker /tmp/fresh_app
+          echo "==> Generating clean official Android scaffold..."
+          rm -rf android
+          flutter create --platforms android --org com.personal .
 
-          # 3. Replace android directory with the official scaffold
-          rm -rf flutter_expense_tracker/android
-          cp -r /tmp/fresh_app/android flutter_expense_tracker/
+          echo "==> Removing default scaffold activity..."
+          rm -rf android/app/src/main/kotlin/*
+          rm -rf android/app/src/main/java/*
 
-          # 4. Restore our custom native Kotlin services and AndroidManifest
-          cp -r /tmp/custom_code/kotlin/* flutter_expense_tracker/android/app/src/main/kotlin/
-          cp -f /tmp/custom_code/AndroidManifest.xml flutter_expense_tracker/android/app/src/main/AndroidManifest.xml
-          chmod +x flutter_expense_tracker/android/gradlew
+          echo "==> Installing our custom native services, receivers, and activity..."
+          mkdir -p android/app/src/main/kotlin/com/personal/upiexpensetracker
+          cp -r /tmp/native_backup/upiexpensetracker/* android/app/src/main/kotlin/com/personal/upiexpensetracker/
+          cp -f /tmp/native_backup/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
 
-          # 5. Set minSdkVersion to 26 for NotificationListenerService compatibility
-          sed -i 's/minSdkVersion = flutter.minSdkVersion/minSdkVersion = 26/g' flutter_expense_tracker/android/app/build.gradle || true
-          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 26/g' flutter_expense_tracker/android/app/build.gradle || true
+          echo "==> Configuring minSdkVersion = 26 in app/build.gradle..."
+          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 26/g' android/app/build.gradle || true
+          sed -i 's/minSdkVersion = flutter.minSdkVersion/minSdkVersion = 26/g' android/app/build.gradle || true
+          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 26/g' android/app/build.gradle || true
 
-          # 6. Ensure local.properties references the runner's Android SDK
-          echo "sdk.dir=$ANDROID_SDK_ROOT" > flutter_expense_tracker/android/local.properties
-          echo "flutter.sdk=$FLUTTER_ROOT" >> flutter_expense_tracker/android/local.properties
+          echo "==> Setting Android SDK path in local.properties..."
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > android/local.properties
+          chmod +x android/gradlew
 
       - name: Install Dependencies
         working-directory: flutter_expense_tracker
@@ -66,7 +70,7 @@ jobs:
 
       - name: Build Debug APK
         working-directory: flutter_expense_tracker
-        run: flutter build apk --debug --verbose
+        run: flutter build apk --debug
 
       - name: Upload APK to Artifacts
         uses: actions/upload-artifact@v4

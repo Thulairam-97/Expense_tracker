@@ -28,7 +28,7 @@ jobs:
       - name: Verify Flutter & Android Setup
         run: flutter doctor -v
 
-      - name: Scaffold Official Android Platform & Integrate Native Services
+      - name: Scaffold Clean Android Platform & Integrate Native Services
         working-directory: flutter_expense_tracker
         run: |
           set -e
@@ -50,6 +50,12 @@ jobs:
           cp -r /tmp/native_backup/upiexpensetracker/* android/app/src/main/kotlin/com/personal/upiexpensetracker/
           cp -f /tmp/native_backup/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
 
+          echo "==> Aligning namespace and applicationId in build.gradle..."
+          sed -i 's/namespace = "com.personal.upi_expense_tracker"/namespace = "com.personal.upiexpensetracker"/g' android/app/build.gradle || true
+          sed -i 's/namespace "com.personal.upi_expense_tracker"/namespace "com.personal.upiexpensetracker"/g' android/app/build.gradle || true
+          sed -i 's/applicationId = "com.personal.upi_expense_tracker"/applicationId = "com.personal.upiexpensetracker"/g' android/app/build.gradle || true
+          sed -i 's/applicationId "com.personal.upi_expense_tracker"/applicationId "com.personal.upiexpensetracker"/g' android/app/build.gradle || true
+
           echo "==> Configuring minSdkVersion = 26 in app/build.gradle..."
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 26/g' android/app/build.gradle || true
           sed -i 's/minSdkVersion = flutter.minSdkVersion/minSdkVersion = 26/g' android/app/build.gradle || true
@@ -66,6 +72,11 @@ jobs:
       - name: Run Unit Tests
         working-directory: flutter_expense_tracker
         run: flutter test
+        continue-on-error: true
+
+      - name: Analyze Dart Code
+        working-directory: flutter_expense_tracker
+        run: flutter analyze
         continue-on-error: true
 
       - name: Build Debug APK

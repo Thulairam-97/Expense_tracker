@@ -1,0 +1,678 @@
+import React, { useState, useMemo } from 'react';
+import {
+  Wallet,
+  Bell,
+  Search,
+  Plus,
+  ArrowUpRight,
+  TrendingUp,
+  Tag,
+  Calendar,
+  Layers,
+  FileCode,
+  ShieldCheck,
+  CheckCircle,
+  Smartphone,
+  ChevronRight,
+  RefreshCw,
+  AlertCircle
+} from 'lucide-react';
+import { Expense, Category, PaymentSource, TransactionStatus } from './types';
+import { DEFAULT_CATEGORIES } from './data/defaultCategories';
+import { ActionableNotificationBar } from './components/ActionableNotificationBar';
+import { NotificationTestbench } from './components/NotificationTestbench';
+import { TransactionDetailModal } from './components/TransactionDetailModal';
+import { ManualExpenseModal } from './components/ManualExpenseModal';
+import { ArchitectureDocs } from './components/ArchitectureDocs';
+import { CodeExplorer } from './components/CodeExplorer';
+
+// Initial sample transactions to showcase rich state
+const INITIAL_EXPENSES: Expense[] = [
+  {
+    id: 'exp_1',
+    amount: 450,
+    merchant: 'ABC Supermarket',
+    categoryId: 'cat_groceries',
+    timestamp: new Date(Date.now() - 1000 * 60 * 42).toISOString(), // 42 mins ago
+    paymentSource: 'gpay',
+    status: 'success',
+    referenceId: '312345678901',
+    rawNotificationText: 'Paid ₹450 to ABC Supermarket. Ref: 312345678901',
+  },
+  {
+    id: 'exp_2',
+    amount: 820,
+    merchant: 'Blue Tokai Coffee',
+    categoryId: 'cat_food',
+    timestamp: new Date(Date.now() - 1000 * 60 * 180).toISOString(), // 3 hours ago
+    paymentSource: 'phonepe',
+    status: 'success',
+    referenceId: 'T240914123456',
+    rawNotificationText: 'Payment of ₹820 to Blue Tokai Coffee was successful. Txn ID: T240914123456',
+  },
+  {
+    id: 'exp_3',
+    amount: 1500,
+    merchant: 'Indian Oil Petrol Pump',
+    categoryId: 'cat_fuel',
+    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 26).toISOString(), // Yesterday
+    paymentSource: 'paytm',
+    status: 'success',
+    referenceId: 'PT9912401',
+    rawNotificationText: 'Paid ₹1,500 at Indian Oil Petrol Pump. Txn ID: PT9912401',
+  },
+  {
+    id: 'exp_4',
+    amount: 299,
+    merchant: 'Jio Prepaid Recharge',
+    categoryId: 'cat_recharge',
+    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 50).toISOString(), // 2 days ago
+    paymentSource: 'gpay',
+    status: 'success',
+    referenceId: '3998124501',
+    rawNotificationText: 'Paid ₹299 to Jio Prepaid. Ref: 3998124501',
+  },
+];
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState<'app' | 'architecture' | 'code'>('app');
+  const [expenses, setExpenses] = useState<Expense[]>(INITIAL_EXPENSES);
+  const [categories, setCategories] = useState<Category[]>(DEFAULT_CATEGORIES);
+  const [monthlyBudget, setMonthlyBudget] = useState<number>(30000);
+
+  // Search & Filter
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
+
+  // Modals
+  const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
+  const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+
+  // Active Pending Notification for One-Tap Category assignment
+  const [pendingNotification, setPendingNotification] = useState<{
+    id: string;
+    amount: number;
+    merchant: string;
+    source: PaymentSource;
+    referenceId?: string;
+    rawText: string;
+    suggestedCategoryId?: string;
+    timestamp: number;
+  } | null>(null);
+
+  // Status message for notification simulations (e.g. "Duplicate blocked", "Income ignored")
+  const [simulationBanner, setSimulationBanner] = useState<{
+    type: 'info' | 'success' | 'warning' | 'error';
+    message: string;
+  } | null>(null);
+
+  // Computed Metrics
+  const metrics = useMemo(() => {
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const weekStart = todayStart - 7 * 24 * 60 * 60 * 1000;
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+
+    let todaySpending = 0;
+    let weekSpending = 0;
+    let monthSpending = 0;
+
+    const categoryMap: Record<string, number> = {};
+
+    expenses.forEach((exp) => {
+      if (exp.status !== 'success') return;
+      const expTime = new Date(exp.timestamp).getTime();
+
+      if (expTime >= todayStart) {
+        todaySpending += exp.amount;
+      }
+      if (expTime >= weekStart) {
+        weekSpending += exp.amount;
+      }
+      if (expTime >= monthStart) {
+        monthSpending += exp.amount;
+      }
+
+      categoryMap[exp.categoryId] = (categoryMap[exp.categoryId] || 0) + exp.amount;
+    });
+
+    return {
+      todaySpending,
+      weekSpending,
+      monthSpending,
+      transactionCount: expenses.length,
+      categoryMap,
+    };
+  }, [expenses]);
+
+  // Filtered Expenses
+  const filteredExpenses = useMemo(() => {
+    return expenses.filter((exp) => {
+      const matchesSearch =
+        exp.merchant.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (exp.referenceId && exp.referenceId.toLowerCase().includes(searchQuery.toLowerCase()));
+
+      const matchesCat =
+        selectedCategoryFilter === 'all' || exp.categoryId === selectedCategoryFilter;
+
+      return matchesSearch && matchesCat;
+    });
+  }, [expenses, searchQuery, selectedCategoryFilter]);
+
+  // Handle incoming notification simulation
+  const handleSimulateNotification = ({
+    packageName,
+    source,
+    title,
+    body,
+  }: {
+    packageName: string;
+    source: PaymentSource;
+    title: string;
+    body: string;
+  }) => {
+    const fullText = `${title} ${body}`;
+    const lower = fullText.toLowerCase();
+
+    // 1. Check for Credit / Money Received
+    if (lower.includes('received') || lower.includes('credited') || lower.includes('sent you')) {
+      setSimulationBanner({
+        type: 'info',
+        message: '⚡ Notification Filtered: Incoming money detected. Not counted as an expense.',
+      });
+      setTimeout(() => setSimulationBanner(null), 4000);
+      return;
+    }
+
+    // 2. Check for Failed / Declined transaction
+    if (lower.includes('failed') || lower.includes('declined')) {
+      setSimulationBanner({
+        type: 'warning',
+        message: '⚠️ Notification Filtered: Payment failed/declined. Not counted as an expense.',
+      });
+      setTimeout(() => setSimulationBanner(null), 4000);
+      return;
+    }
+
+    // 3. Extract Amount
+    const amountMatch = fullText.match(/(?:₹|Rs\.?|INR)\s*([0-9,]+(?:\.[0-9]{1,2})?)/i);
+    if (!amountMatch) {
+      setSimulationBanner({
+        type: 'error',
+        message: 'Could not extract valid currency amount from notification.',
+      });
+      setTimeout(() => setSimulationBanner(null), 3000);
+      return;
+    }
+    const cleanAmount = parseFloat(amountMatch[1].replace(/,/g, ''));
+
+    // 4. Extract Merchant
+    let merchant = 'UPI Recipient';
+    const payeeMatch =
+      fullText.match(/(?:paid|sent|payment of)\s+(?:₹|rs\.?|inr)?\s*[0-9,.]+\s+(?:to|at)\s+([^,.\n]+)/i) ||
+      fullText.match(/towards\s+([^,.\n]+)/i);
+
+    if (payeeMatch && payeeMatch[1]) {
+      merchant = payeeMatch[1].replace(/via|using|ref|txn.*/i, '').trim();
+    }
+
+    // 5. Extract Reference ID
+    const refMatch = fullText.match(/(?:ref|utr|txn|id)[:\s]*([A-Za-z0-9]{8,18})/i);
+    const referenceId = refMatch ? refMatch[1] : undefined;
+
+    // 6. Duplicate Detection Check
+    const now = Date.now();
+    const isDuplicate = expenses.some((exp) => {
+      if (referenceId && exp.referenceId === referenceId) return true;
+      const diffMinutes = Math.abs(now - new Date(exp.timestamp).getTime()) / (1000 * 60);
+      return diffMinutes < 5 && Math.abs(exp.amount - cleanAmount) < 0.01 && exp.merchant.toLowerCase() === merchant.toLowerCase();
+    });
+
+    if (isDuplicate) {
+      setSimulationBanner({
+        type: 'warning',
+        message: `🛡️ Duplicate Blocked: Transaction of ₹${cleanAmount} to "${merchant}" was already recorded!`,
+      });
+      setTimeout(() => setSimulationBanner(null), 4500);
+      return;
+    }
+
+    // Category Suggestion
+    let suggestedCategoryId: string | undefined;
+    const lowMerch = merchant.toLowerCase();
+    if (lowMerch.includes('swiggy') || lowMerch.includes('coffee') || lowMerch.includes('food') || lowMerch.includes('cafe')) {
+      suggestedCategoryId = 'cat_food';
+    } else if (lowMerch.includes('supermarket') || lowMerch.includes('market') || lowMerch.includes('grocer') || lowMerch.includes('foods')) {
+      suggestedCategoryId = 'cat_groceries';
+    } else if (lowMerch.includes('petrol') || lowMerch.includes('fuel')) {
+      suggestedCategoryId = 'cat_fuel';
+    }
+
+    // Prompt user with the Actionable Notification Banner
+    setPendingNotification({
+      id: 'notif_' + Date.now(),
+      amount: cleanAmount,
+      merchant,
+      source,
+      referenceId,
+      rawText: fullText,
+      suggestedCategoryId,
+      timestamp: now,
+    });
+
+    setSimulationBanner({
+      type: 'success',
+      message: `🔔 Payment notification detected from ${source.toUpperCase()}! Tap a category in the banner to record.`,
+    });
+    setTimeout(() => setSimulationBanner(null), 4000);
+  };
+
+  // Record category from Actionable Notification (Zero manual entry)
+  const handleAssignCategory = (categoryId: string) => {
+    if (!pendingNotification) return;
+
+    const newExpense: Expense = {
+      id: 'exp_' + Date.now(),
+      amount: pendingNotification.amount,
+      merchant: pendingNotification.merchant,
+      categoryId,
+      timestamp: new Date(pendingNotification.timestamp).toISOString(),
+      paymentSource: pendingNotification.source,
+      status: 'success',
+      referenceId: pendingNotification.referenceId,
+      rawNotificationText: pendingNotification.rawText,
+    };
+
+    setExpenses((prev) => [newExpense, ...prev]);
+    setPendingNotification(null);
+
+    setSimulationBanner({
+      type: 'success',
+      message: `✅ Saved ₹${newExpense.amount} at ${newExpense.merchant} under ${categories.find(c => c.id === categoryId)?.name}!`,
+    });
+    setTimeout(() => setSimulationBanner(null), 3500);
+  };
+
+  // Save manual expense
+  const handleSaveManual = (expenseData: Omit<Expense, 'id'>) => {
+    const newExpense: Expense = {
+      ...expenseData,
+      id: 'exp_' + Date.now(),
+    };
+    setExpenses((prev) => [newExpense, ...prev]);
+  };
+
+  // Delete expense
+  const handleDeleteExpense = (id: string) => {
+    setExpenses((prev) => prev.filter((e) => e.id !== id));
+  };
+
+  const budgetPercentage = Math.min(100, Math.round((metrics.monthSpending / monthlyBudget) * 100));
+
+  return (
+    <div className="min-h-screen bg-slate-100 text-slate-900 font-sans">
+      {/* Top App Header */}
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-teal-700 to-emerald-600 flex items-center justify-center text-white shadow-sm">
+              <Wallet className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-base font-bold text-slate-900 tracking-tight">
+                  UPI Expense Tracker
+                </h1>
+                <span className="text-[10px] font-bold uppercase bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-ping" />
+                  Milestone 1 Complete
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">Android NotificationListener + Zero-Manual Entry</p>
+            </div>
+          </div>
+
+          {/* Navigation Mode Tabs */}
+          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+            <button
+              onClick={() => setActiveTab('app')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                activeTab === 'app'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Smartphone className="w-3.5 h-3.5 text-teal-600" />
+              <span>Mobile App Preview</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('architecture')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                activeTab === 'architecture'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Architecture & Plan</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('code')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                activeTab === 'code'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <FileCode className="w-3.5 h-3.5 text-purple-600" />
+              <span>Generated Code</span>
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsManualModalOpen(true)}
+              className="bg-teal-700 hover:bg-teal-800 text-white text-xs font-semibold px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition-all shadow-xs"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Manual</span>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Simulation Alert Banner */}
+      {simulationBanner && (
+        <div
+          className={`max-w-7xl mx-auto px-4 mt-3 animate-in fade-in slide-in-from-top-2 duration-200`}
+        >
+          <div
+            className={`p-3 rounded-xl text-xs font-semibold flex items-center gap-2 border shadow-xs ${
+              simulationBanner.type === 'success'
+                ? 'bg-emerald-50 text-emerald-900 border-emerald-200'
+                : simulationBanner.type === 'warning'
+                ? 'bg-amber-50 text-amber-900 border-amber-200'
+                : simulationBanner.type === 'info'
+                ? 'bg-blue-50 text-blue-900 border-blue-200'
+                : 'bg-rose-50 text-rose-900 border-rose-200'
+            }`}
+          >
+            {simulationBanner.type === 'success' ? (
+              <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+            )}
+            <span>{simulationBanner.message}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Main Content Area */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+        {activeTab === 'architecture' ? (
+          <ArchitectureDocs />
+        ) : activeTab === 'code' ? (
+          <CodeExplorer />
+        ) : (
+          /* Live App View */
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Left Column: Phone Shell Preview */}
+            <div className="lg:col-span-7 space-y-4">
+              {/* Actionable Notification Prompt Banner */}
+              <ActionableNotificationBar
+                notification={pendingNotification}
+                categories={categories}
+                onSelectCategory={handleAssignCategory}
+                onDismiss={() => setPendingNotification(null)}
+              />
+
+              {/* Status & Listener Info Card */}
+              <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-3 h-3 rounded-full bg-emerald-500 animate-ping" />
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-800">
+                      Notification Listener Service Active
+                    </h4>
+                    <p className="text-[11px] text-slate-500">
+                      Listening to GPay, PhonePe, Paytm, BHIM, Bank UPI.
+                    </p>
+                  </div>
+                </div>
+                <span className="text-[11px] font-semibold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-lg border border-teal-200">
+                  Android 14 Ready
+                </span>
+              </div>
+
+              {/* Spending Metric Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block mb-1">
+                    Today
+                  </span>
+                  <div className="text-xl font-bold text-slate-900">
+                    ₹{metrics.todaySpending.toLocaleString('en-IN')}
+                  </div>
+                </div>
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block mb-1">
+                    This Week
+                  </span>
+                  <div className="text-xl font-bold text-slate-900">
+                    ₹{metrics.weekSpending.toLocaleString('en-IN')}
+                  </div>
+                </div>
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block mb-1">
+                    This Month
+                  </span>
+                  <div className="text-xl font-bold text-teal-700">
+                    ₹{metrics.monthSpending.toLocaleString('en-IN')}
+                  </div>
+                </div>
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block mb-1">
+                    Transactions
+                  </span>
+                  <div className="text-xl font-bold text-slate-900">
+                    {metrics.transactionCount}
+                  </div>
+                </div>
+              </div>
+
+              {/* Monthly Budget Tracker */}
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-2.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-slate-800">Monthly Budget Tracking</span>
+                  <span className="text-slate-500 font-medium">
+                    ₹{metrics.monthSpending.toLocaleString('en-IN')} of ₹
+                    {monthlyBudget.toLocaleString('en-IN')} ({budgetPercentage}%)
+                  </span>
+                </div>
+                <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full transition-all duration-500 rounded-full ${
+                      budgetPercentage > 85 ? 'bg-rose-500' : 'bg-teal-600'
+                    }`}
+                    style={{ width: `${budgetPercentage}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Transactions List with Search & Category Filters */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+                <div className="p-4 border-b border-slate-100 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-slate-800">Expenses & Transactions</h3>
+                    <span className="text-xs text-slate-400 font-medium">
+                      Showing {filteredExpenses.length} items
+                    </span>
+                  </div>
+
+                  {/* Search and Category Filter Bar */}
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Search merchant, notes, ref ID..."
+                        className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-teal-600"
+                      />
+                    </div>
+                    <select
+                      value={selectedCategoryFilter}
+                      onChange={(e) => setSelectedCategoryFilter(e.target.value)}
+                      className="text-xs px-3 py-1.5 rounded-xl border border-slate-200 bg-white font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-600"
+                    >
+                      <option value="all">All Categories</option>
+                      {categories.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* List Items */}
+                <div className="divide-y divide-slate-100 max-h-[380px] overflow-y-auto">
+                  {filteredExpenses.length === 0 ? (
+                    <div className="p-8 text-center text-slate-400 text-xs">
+                      No expenses match your search. Use the testbench to simulate a payment!
+                    </div>
+                  ) : (
+                    filteredExpenses.map((exp) => {
+                      const cat = categories.find((c) => c.id === exp.categoryId);
+                      const timeStr = new Date(exp.timestamp).toLocaleDateString('en-IN', {
+                        day: 'numeric',
+                        month: 'short',
+                      });
+
+                      return (
+                        <div
+                          key={exp.id}
+                          onClick={() => setSelectedExpense(exp)}
+                          className="p-3.5 hover:bg-slate-50 transition-colors flex items-center justify-between cursor-pointer group"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div
+                              className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-xs font-bold shadow-xs"
+                              style={{ backgroundColor: cat?.color ?? '#0f766e' }}
+                            >
+                              {cat?.name.substring(0, 2).toUpperCase() ?? 'EX'}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <h4 className="text-xs font-bold text-slate-900 group-hover:text-teal-700 transition-colors">
+                                  {exp.merchant}
+                                </h4>
+                                <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+                                  {exp.paymentSource}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5">
+                                <span>{cat?.name ?? 'General'}</span>
+                                <span>•</span>
+                                <span>{timeStr}</span>
+                                {exp.referenceId && (
+                                  <>
+                                    <span>•</span>
+                                    <span className="font-mono text-[10px]">
+                                      Ref: {exp.referenceId}
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="text-right">
+                            <div className="text-sm font-bold text-slate-900">
+                              ₹{exp.amount.toLocaleString('en-IN')}
+                            </div>
+                            <span className="text-[10px] text-emerald-600 font-medium">
+                              Recorded
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Right Column: Notification Testbench & Category Analytics */}
+            <div className="lg:col-span-5 space-y-4">
+              {/* Android Notification Testbench */}
+              <NotificationTestbench
+                onSimulate={handleSimulateNotification}
+                onClearTransactions={() => setExpenses([])}
+              />
+
+              {/* Category Spending Breakdown */}
+              <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                  <h3 className="text-xs font-bold text-slate-800">Category Spending</h3>
+                  <span className="text-[11px] text-slate-400">This Month</span>
+                </div>
+
+                <div className="space-y-2.5">
+                  {categories.slice(0, 6).map((cat) => {
+                    const spent = metrics.categoryMap[cat.id] || 0;
+                    const pct = metrics.monthSpending > 0 ? Math.round((spent / metrics.monthSpending) * 100) : 0;
+
+                    return (
+                      <div key={cat.id} className="space-y-1">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-semibold text-slate-700 flex items-center gap-1.5">
+                            <span
+                              className="w-2 h-2 rounded-full"
+                              style={{ backgroundColor: cat.color }}
+                            />
+                            {cat.name}
+                          </span>
+                          <span className="font-bold text-slate-900">
+                            ₹{spent.toLocaleString('en-IN')}{' '}
+                            <span className="text-slate-400 font-normal">({pct}%)</span>
+                          </span>
+                        </div>
+                        <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all"
+                            style={{
+                              width: `${pct}%`,
+                              backgroundColor: cat.color,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* Transaction Detail Modal */}
+      <TransactionDetailModal
+        expense={selectedExpense}
+        category={categories.find((c) => c.id === selectedExpense?.categoryId)}
+        onClose={() => setSelectedExpense(null)}
+        onDelete={handleDeleteExpense}
+      />
+
+      {/* Manual Expense Modal */}
+      <ManualExpenseModal
+        isOpen={isManualModalOpen}
+        categories={categories}
+        onClose={() => setIsManualModalOpen(false)}
+        onSave={handleSaveManual}
+      />
+    </div>
+  );
+}

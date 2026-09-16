@@ -70,7 +70,7 @@ class PhonePeNotificationParser extends BaseNotificationParser {
 
     // Reference ID
     String? refId;
-    final refMatch = RegExp(r'(?:txn|reference|rrn|utr)\s*(?:id|no\.?|:)?\s*([A-Za-z0-9]{8,18})', caseSensitive: false).firstMatch(fullText);
+    final refMatch = RegExp(r'(?:txn|reference|rrn|utr)\s*(?:id|no\.?)?[:\s]*([A-Za-z0-9]{8,22})', caseSensitive: false).firstMatch(fullText);
     if (refMatch != null) {
       refId = refMatch.group(1);
     }

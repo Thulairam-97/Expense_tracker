@@ -21,7 +21,7 @@
         android:icon="@mipmap/ic_launcher">
 
         <activity
-            android:name="com.personal.upi_expense_tracker.MainActivity"
+            android:name="com.personal.upiexpensetracker.MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
             android:taskAffinity=""
@@ -39,17 +39,6 @@
             </intent-filter>
         </activity>
 
-        <!-- Activity alias to ensure compatibility with com.personal.upiexpensetracker intent calls -->
-        <activity-alias
-            android:name="com.personal.upiexpensetracker.MainActivity"
-            android:targetActivity="com.personal.upi_expense_tracker.MainActivity"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
@@ -58,7 +47,7 @@
 
         <!-- Native Android Notification Listener Service for detecting UPI payment notifications -->
         <service
-            android:name="com.personal.upi_expense_tracker.service.PaymentNotificationListenerService"
+            android:name="com.personal.upiexpensetracker.service.PaymentNotificationListenerService"
             android:label="UPI Expense Notification Interceptor"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
             android:exported="true">
@@ -69,7 +58,7 @@
 
         <!-- Broadcast Receiver for actionable notification button taps (Category Quick-Select) -->
         <receiver
-            android:name="com.personal.upi_expense_tracker.service.NotificationActionReceiver"
+            android:name="com.personal.upiexpensetracker.service.NotificationActionReceiver"
             android:exported="false">
             <intent-filter>
                 <action android:name="com.personal.upiexpensetracker.ACTION_RECORD_CATEGORY" />

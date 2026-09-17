@@ -1,3 +1,0 @@
-package com.personal.upi_expense_tracker.service
-
-class PaymentNotificationListenerService : com.personal.upiexpensetracker.service.PaymentNotificationListenerService()

@@ -138,26 +138,30 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _initNotificationStream() {
-    _notificationSubscription = _eventChannel.receiveBroadcastStream().listen(
-      (dynamic event) {
-        if (event is Map) {
-          final packageName = event['packageName'] as String? ?? '';
-          final title = event['title'] as String? ?? '';
-          final text = event['text'] as String? ?? '';
-          final postTime = event['timestamp'] as int? ?? DateTime.now().millisecondsSinceEpoch;
+    try {
+      _notificationSubscription = _eventChannel.receiveBroadcastStream().listen(
+        (dynamic event) {
+          if (event is Map) {
+            final packageName = event['packageName'] as String? ?? '';
+            final title = event['title'] as String? ?? '';
+            final text = event['text'] as String? ?? '';
+            final postTime = event['timestamp'] as int? ?? DateTime.now().millisecondsSinceEpoch;
 
-          _handleIncomingNotification(
-            packageName: packageName,
-            title: title,
-            body: text,
-            timestamp: DateTime.fromMillisecondsSinceEpoch(postTime),
-          );
-        }
-      },
-      onError: (dynamic error) {
-        debugPrint('Error on notification stream: $error');
-      },
-    );
+            _handleIncomingNotification(
+              packageName: packageName,
+              title: title,
+              body: text,
+              timestamp: DateTime.fromMillisecondsSinceEpoch(postTime),
+            );
+          }
+        },
+        onError: (dynamic error) {
+          debugPrint('Error on notification stream: $error');
+        },
+      );
+    } catch (e) {
+      debugPrint('Failed to initialize notification stream: $e');
+    }
   }
 
   void _handleIncomingNotification({

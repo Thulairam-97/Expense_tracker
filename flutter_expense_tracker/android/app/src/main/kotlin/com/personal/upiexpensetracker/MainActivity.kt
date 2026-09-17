@@ -28,59 +28,74 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        createNotificationChannel()
-
-        // 1. MethodChannel for permission check, settings launch, and actionable notification trigger
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, METHOD_CHANNEL).setMethodCallHandler { call, result ->
-            when (call.method) {
-                "isNotificationPermissionGranted" -> {
-                    val isGranted = isNotificationAccessGranted()
-                    result.success(isGranted)
-                }
-                "openNotificationSettings" -> {
-                    openNotificationListenerSettings()
-                    result.success(true)
-                }
-                "showActionableCategoryNotification" -> {
-                    val amount = call.argument<Double>("amount") ?: 0.0
-                    val merchant = call.argument<String>("merchant") ?: "Merchant"
-                    val transactionId = call.argument<String>("transactionId") ?: ""
-                    val notificationId = call.argument<Int>("notificationId") ?: 1001
-
-                    showCategoryPickerNotification(amount, merchant, transactionId, notificationId)
-                    result.success(true)
-                }
-                else -> {
-                    result.notImplemented()
-                }
-            }
+        try {
+            createNotificationChannel()
+        } catch (e: Exception) {
+            // Non-fatal notification channel creation warning
         }
 
-        // 2. EventChannel for streaming notifications to Flutter Dart
-        EventChannel(flutterEngine.dartExecutor.binaryMessenger, EVENT_CHANNEL).setStreamHandler(
-            object : EventChannel.StreamHandler {
-                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
-                    eventSink = events
-                    PaymentNotificationListenerService.notificationEventSink = { payload ->
-                        runOnUiThread {
-                            eventSink?.success(payload)
-                        }
+        try {
+            // 1. MethodChannel for permission check, settings launch, and actionable notification trigger
+            MethodChannel(flutterEngine.dartExecutor.binaryMessenger, METHOD_CHANNEL).setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "isNotificationPermissionGranted" -> {
+                        val isGranted = isNotificationAccessGranted()
+                        result.success(isGranted)
+                    }
+                    "openNotificationSettings" -> {
+                        openNotificationListenerSettings()
+                        result.success(true)
+                    }
+                    "showActionableCategoryNotification" -> {
+                        val amount = call.argument<Double>("amount") ?: 0.0
+                        val merchant = call.argument<String>("merchant") ?: "Merchant"
+                        val transactionId = call.argument<String>("transactionId") ?: ""
+                        val notificationId = call.argument<Int>("notificationId") ?: 1001
+
+                        showCategoryPickerNotification(amount, merchant, transactionId, notificationId)
+                        result.success(true)
+                    }
+                    else -> {
+                        result.notImplemented()
                     }
                 }
-
-                override fun onCancel(arguments: Any?) {
-                    eventSink = null
-                    PaymentNotificationListenerService.notificationEventSink = null
-                }
             }
-        )
+
+            // 2. EventChannel for streaming notifications to Flutter Dart
+            EventChannel(flutterEngine.dartExecutor.binaryMessenger, EVENT_CHANNEL).setStreamHandler(
+                object : EventChannel.StreamHandler {
+                    override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                        eventSink = events
+                        PaymentNotificationListenerService.notificationEventSink = { payload ->
+                            runOnUiThread {
+                                eventSink?.success(payload)
+                            }
+                        }
+                    }
+
+                    override fun onCancel(arguments: Any?) {
+                        eventSink = null
+                        PaymentNotificationListenerService.notificationEventSink = null
+                    }
+                }
+            )
+        } catch (e: Exception) {
+            // Prevent fatal startup crash if channel registration has an exception
+        }
     }
 
     private fun isNotificationAccessGranted(): Boolean {
         return try {
-            val packageName = packageName
+            val enabledPackages = NotificationManagerCompat.getEnabledListenerPackages(this)
+            if (enabledPackages.contains(packageName) ||
+                enabledPackages.contains("com.personal.upiexpensetracker") ||
+                enabledPackages.contains("com.personal.upi_expense_tracker")) {
+                return true
+            }
             val flat = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
-            flat != null && flat.contains(packageName)
+            flat != null && (flat.contains(packageName) ||
+                             flat.contains("com.personal.upiexpensetracker") ||
+                             flat.contains("com.personal.upi_expense_tracker"))
         } catch (e: Exception) {
             false
         }

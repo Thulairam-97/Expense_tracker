@@ -440,7 +440,7 @@ export default function App() {
                   </div>
                 </div>
                 <span className="text-[11px] font-semibold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-lg border border-teal-200">
-                  Android 14 Ready
+                  Android 8.0 – 14+ (API 26+)
                 </span>
               </div>
 

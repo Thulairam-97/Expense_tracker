@@ -30,6 +30,15 @@ class NotificationActionReceiver : BroadcastReceiver() {
 
                 Log.d("NotificationAction", "Action received: Record expense $transactionId with category $categoryId")
 
+                // Forward to Flutter via PaymentNotificationListenerService's eventSink if app is open
+                PaymentNotificationListenerService.notificationEventSink?.invoke(
+                    mapOf(
+                        "actionType" to "category_selected",
+                        "transactionId" to transactionId,
+                        "categoryId" to categoryId,
+                    )
+                )
+
                 // Update database or notify Flutter bridge
                 val forwardIntent = Intent("com.personal.upiexpensetracker.CATEGORY_SELECTED").apply {
                     putExtra("transaction_id", transactionId)

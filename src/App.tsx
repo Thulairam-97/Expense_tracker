@@ -15,7 +15,9 @@ import {
   Smartphone,
   ChevronRight,
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  Trash2,
+  Lock,
 } from 'lucide-react';
 import { Expense, Category, PaymentSource, TransactionStatus } from './types';
 import { DEFAULT_CATEGORIES } from './data/defaultCategories';
@@ -25,6 +27,10 @@ import { TransactionDetailModal } from './components/TransactionDetailModal';
 import { ManualExpenseModal } from './components/ManualExpenseModal';
 import { ArchitectureDocs } from './components/ArchitectureDocs';
 import { CodeExplorer } from './components/CodeExplorer';
+import { AppLogo } from './components/AppLogo';
+import { PinScreen } from './components/PinScreen';
+import { TrendsView } from './components/TrendsView';
+import { SettingsView } from './components/SettingsView';
 
 // Initial sample transactions to showcase rich state
 const INITIAL_EXPENSES: Expense[] = [
@@ -76,6 +82,9 @@ const INITIAL_EXPENSES: Expense[] = [
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'app' | 'architecture' | 'code'>('app');
+  const [appSubTab, setAppSubTab] = useState<'expenses' | 'trends' | 'simulator' | 'settings'>('expenses');
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true);
+  const [savedPin, setSavedPin] = useState<string>('1234');
   const [expenses, setExpenses] = useState<Expense[]>(INITIAL_EXPENSES);
   const [categories, setCategories] = useState<Category[]>(DEFAULT_CATEGORIES);
   const [monthlyBudget, setMonthlyBudget] = useState<number>(30000);
@@ -309,15 +318,29 @@ export default function App() {
 
   const budgetPercentage = Math.min(100, Math.round((metrics.monthSpending / monthlyBudget) * 100));
 
+  if (!isAuthenticated) {
+    return (
+      <PinScreen
+        savedPin={savedPin}
+        userName="Thulasiram"
+        onAuthenticated={() => setIsAuthenticated(true)}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900 font-sans">
       {/* Top App Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-teal-700 to-emerald-600 flex items-center justify-center text-white shadow-sm">
-              <Wallet className="w-5 h-5" />
-            </div>
+            <button
+              onClick={() => setIsAuthenticated(false)}
+              title="Click App Icon to lock and test PIN & Loading experience"
+              className="cursor-pointer group flex items-center gap-1.5 focus:outline-none"
+            >
+              <AppLogo size={42} showGlow={true} className="group-hover:scale-105 transition-transform" />
+            </button>
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-base font-bold text-slate-900 tracking-tight">
@@ -325,10 +348,10 @@ export default function App() {
                 </h1>
                 <span className="text-[10px] font-bold uppercase bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-ping" />
-                  Milestone 1 Complete
+                  Live On-Device Vault
                 </span>
               </div>
-              <p className="text-xs text-slate-500">Android NotificationListener + Zero-Manual Entry</p>
+              <p className="text-xs text-slate-500">Zero-Manual Entry • 100% Offline & Private</p>
             </div>
           </div>
 
@@ -371,11 +394,36 @@ export default function App() {
 
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setIsAuthenticated(false)}
+              className="border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold px-3 py-2 rounded-xl flex items-center gap-1.5 transition-all shadow-xs"
+              title="Lock app to test PIN screen and loading logo"
+            >
+              <Lock className="w-3.5 h-3.5 text-slate-500" />
+              <span>Lock</span>
+            </button>
+            <button
+              onClick={() => {
+                if (window.confirm('Clear all expenses to start fresh with live calculations?')) {
+                  setExpenses([]);
+                  setSimulationBanner({
+                    type: 'info',
+                    message: 'All expense data cleared. Clean slate ready for live transaction calculations!',
+                  });
+                  setTimeout(() => setSimulationBanner(null), 4000);
+                }
+              }}
+              className="border border-rose-200 hover:bg-rose-50 text-rose-700 text-xs font-semibold px-3 py-2 rounded-xl flex items-center gap-1.5 transition-all shadow-xs"
+              title="Clear all expenses for live data testing"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Clear</span>
+            </button>
+            <button
               onClick={() => setIsManualModalOpen(true)}
               className="bg-teal-700 hover:bg-teal-800 text-white text-xs font-semibold px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition-all shadow-xs"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>Add Manual</span>
+              <span>Add</span>
             </button>
           </div>
         </div>
@@ -415,16 +463,99 @@ export default function App() {
           <CodeExplorer />
         ) : (
           /* Live App View */
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Left Column: Phone Shell Preview */}
-            <div className="lg:col-span-7 space-y-4">
-              {/* Actionable Notification Prompt Banner */}
-              <ActionableNotificationBar
-                notification={pendingNotification}
-                categories={categories}
-                onSelectCategory={handleAssignCategory}
-                onDismiss={() => setPendingNotification(null)}
+          <div className="space-y-6">
+            {/* Mobile App Sub-Navigation Bar */}
+            <div className="bg-white p-1.5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between gap-2 overflow-x-auto">
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setAppSubTab('expenses')}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+                    appSubTab === 'expenses'
+                      ? 'bg-teal-700 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <Wallet className="w-3.5 h-3.5" />
+                  <span>Expenses</span>
+                </button>
+                <button
+                  onClick={() => setAppSubTab('trends')}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+                    appSubTab === 'trends'
+                      ? 'bg-teal-700 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <TrendingUp className="w-3.5 h-3.5" />
+                  <span>Trends & Analytics</span>
+                </button>
+                <button
+                  onClick={() => setAppSubTab('simulator')}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+                    appSubTab === 'simulator'
+                      ? 'bg-teal-700 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <Bell className="w-3.5 h-3.5" />
+                  <span>UPI Simulator</span>
+                </button>
+                <button
+                  onClick={() => setAppSubTab('settings')}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+                    appSubTab === 'settings'
+                      ? 'bg-teal-700 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>Security & Settings</span>
+                </button>
+              </div>
+
+              <div className="hidden sm:flex items-center gap-2 pr-3 text-xs text-slate-500">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="font-semibold text-slate-700">Live Local Engine</span>
+              </div>
+            </div>
+
+            {appSubTab === 'trends' ? (
+              <TrendsView expenses={expenses} categories={categories} />
+            ) : appSubTab === 'settings' ? (
+              <SettingsView
+                onLockApp={() => setIsAuthenticated(false)}
+                onClearAllData={() => {
+                  if (window.confirm('Clear all expenses to start fresh?')) {
+                    setExpenses([]);
+                    setSimulationBanner({
+                      type: 'info',
+                      message: 'All expense data cleared. Clean slate ready for live transaction calculations!',
+                    });
+                    setTimeout(() => setSimulationBanner(null), 4000);
+                  }
+                }}
+                savedPin={savedPin}
+                onUpdatePin={(newPin) => setSavedPin(newPin)}
+                expenseCount={expenses.length}
               />
+            ) : appSubTab === 'simulator' ? (
+              <div className="max-w-4xl mx-auto space-y-4">
+                <NotificationTestbench
+                  onSimulate={handleSimulateNotification}
+                  onClearTransactions={() => setExpenses([])}
+                />
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* Left Column: Phone Shell Preview */}
+                <div className="lg:col-span-7 space-y-4">
+                  {/* Actionable Notification Prompt Banner */}
+                  <ActionableNotificationBar
+                    notification={pendingNotification}
+                    categories={categories}
+                    onSelectCategory={handleAssignCategory}
+                    onDismiss={() => setPendingNotification(null)}
+                  />
 
               {/* Status & Listener Info Card */}
               <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs flex items-center justify-between">
@@ -656,6 +787,8 @@ export default function App() {
             </div>
           </div>
         )}
+      </div>
+    )}
       </main>
 
       {/* Transaction Detail Modal */}

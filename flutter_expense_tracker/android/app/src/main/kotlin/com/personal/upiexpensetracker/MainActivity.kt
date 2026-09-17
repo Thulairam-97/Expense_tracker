@@ -55,6 +55,19 @@ class MainActivity : FlutterActivity() {
                         showCategoryPickerNotification(amount, merchant, transactionId, notificationId)
                         result.success(true)
                     }
+                    "saveLocalData" -> {
+                        val key = call.argument<String>("key") ?: ""
+                        val value = call.argument<String>("value") ?: ""
+                        val prefs = getSharedPreferences("upi_tracker_local_prefs", Context.MODE_PRIVATE)
+                        prefs.edit().putString(key, value).apply()
+                        result.success(true)
+                    }
+                    "getLocalData" -> {
+                        val key = call.argument<String>("key") ?: ""
+                        val prefs = getSharedPreferences("upi_tracker_local_prefs", Context.MODE_PRIVATE)
+                        val value = prefs.getString(key, null)
+                        result.success(value)
+                    }
                     else -> {
                         result.notImplemented()
                     }

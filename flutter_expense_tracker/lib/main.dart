@@ -11,8 +11,12 @@ import 'domain/models/transaction_status.dart';
 import 'presentation/theme/app_theme.dart';
 
 void main() {
-  WidgetsFlutterBinding.ensureInitialized();
-  runApp(const UPIExpenseTrackerApp());
+  runZonedGuarded(() {
+    WidgetsFlutterBinding.ensureInitialized();
+    runApp(const UPIExpenseTrackerApp());
+  }, (error, stackTrace) {
+    debugPrint('Uncaught Flutter startup error: $error\n$stackTrace');
+  });
 }
 
 class UPIExpenseTrackerApp extends StatelessWidget {
@@ -100,8 +104,10 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _checkPermissionStatus();
-    _initNotificationStream();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkPermissionStatus();
+      _initNotificationStream();
+    });
   }
 
   @override

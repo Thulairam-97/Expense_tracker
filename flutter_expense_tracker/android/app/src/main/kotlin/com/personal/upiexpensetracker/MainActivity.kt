@@ -77,9 +77,13 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun isNotificationAccessGranted(): Boolean {
-        val packageName = packageName
-        val flat = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
-        return flat != null && flat.contains(packageName)
+        return try {
+            val packageName = packageName
+            val flat = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
+            flat != null && flat.contains(packageName)
+        } catch (e: Exception) {
+            false
+        }
     }
 
     private fun openNotificationListenerSettings() {

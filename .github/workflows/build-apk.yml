@@ -48,7 +48,13 @@ jobs:
           echo "==> Installing our custom native services, receivers, and activity..."
           mkdir -p android/app/src/main/kotlin/com/personal/upiexpensetracker
           cp -r /tmp/native_backup/upiexpensetracker/* android/app/src/main/kotlin/com/personal/upiexpensetracker/
-          cp -f /tmp/native_backup/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+          
+          echo "==> Integrating custom permissions and services into generated AndroidManifest..."
+          # Insert permissions before <application
+          sed -i '/<application/i \    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <uses-permission android:name="android.permission.VIBRATE" />\n    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />\n    <queries>\n        <package android:name="com.google.android.apps.nbu.paisa.user" />\n        <package android:name="com.phonepe.app" />\n        <package android:name="net.one97.paytm" />\n        <package android:name="in.org.npci.upiapp" />\n        <package android:name="com.dreamplug.androidapp" />\n    </queries>' android/app/src/main/AndroidManifest.xml
+          
+          # Insert custom services and receivers right before </application>
+          sed -i '/<\/application>/i \        <service\n            android:name=".service.PaymentNotificationListenerService"\n            android:label="UPI Expense Notification Interceptor"\n            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"\n            android:exported="true">\n            <intent-filter>\n                <action android:name="android.service.notification.NotificationListenerService" />\n            </intent-filter>\n        </service>\n        <receiver\n            android:name=".service.NotificationActionReceiver"\n            android:exported="false">\n            <intent-filter>\n                <action android:name="com.personal.upiexpensetracker.ACTION_RECORD_CATEGORY" />\n                <action android:name="com.personal.upiexpensetracker.ACTION_DISMISS_NOTIFICATION" />\n            </intent-filter>\n        </receiver>' android/app/src/main/AndroidManifest.xml
 
           echo "==> Aligning namespace and applicationId in build.gradle..."
           sed -i 's/namespace = "com.personal.upi_expense_tracker"/namespace = "com.personal.upiexpensetracker"/g' android/app/build.gradle || true

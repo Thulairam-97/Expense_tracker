@@ -1,0 +1,24 @@
+{
+  "short_name": "Expense Tracker",
+  "name": "Personal Expense Tracker",
+  "description": "Automated UPI payment notification-listening expense tracker for Android with zero-manual entry and offline local storage.",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#042F2E",
+  "theme_color": "#0F766E",
+  "display": "standalone",
+  "orientation": "portrait"
+}

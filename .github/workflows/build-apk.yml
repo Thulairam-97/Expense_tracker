@@ -17,7 +17,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '17'
@@ -40,9 +40,9 @@ jobs:
           cp -r android/app/src/main/res /tmp/native_backup/
           cp android/app/src/main/AndroidManifest.xml /tmp/native_backup/
 
-          echo "==> Generating clean official Android scaffold with project name upiexpensetracker..."
+          echo "==> Generating clean official Android scaffold..."
           rm -rf android
-          flutter create --platforms android --org com.personal --project-name upiexpensetracker .
+          flutter create --platforms android --org com.personal .
 
           echo "==> Restoring custom Kotlin native services, receivers, and activities..."
           rm -rf android/app/src/main/kotlin/*
@@ -53,15 +53,10 @@ jobs:
           cp -rf /tmp/native_backup/res/* android/app/src/main/res/
 
           echo "==> Ensuring namespace and applicationId are com.personal.upiexpensetracker..."
-          sed -i 's/namespace = "com.personal.upi_expense_tracker"/namespace = "com.personal.upiexpensetracker"/g' android/app/build.gradle || true
-          sed -i 's/namespace "com.personal.upi_expense_tracker"/namespace "com.personal.upiexpensetracker"/g' android/app/build.gradle || true
-          sed -i 's/applicationId = "com.personal.upi_expense_tracker"/applicationId = "com.personal.upiexpensetracker"/g' android/app/build.gradle || true
-          sed -i 's/applicationId "com.personal.upi_expense_tracker"/applicationId "com.personal.upiexpensetracker"/g' android/app/build.gradle || true
-
-          echo "==> Setting minSdkVersion = 26 in app/build.gradle..."
-          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 26/g' android/app/build.gradle || true
-          sed -i 's/minSdkVersion = flutter.minSdkVersion/minSdkVersion = 26/g' android/app/build.gradle || true
-          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 26/g' android/app/build.gradle || true
+          find android/app -name "build.gradle*" -type f -exec sed -i 's/com\.personal\.upi_expense_tracker/com.personal.upiexpensetracker/g' {} +
+          find android/app -name "build.gradle*" -type f -exec sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 26/g' {} +
+          find android/app -name "build.gradle*" -type f -exec sed -i 's/minSdkVersion = flutter.minSdkVersion/minSdkVersion = 26/g' {} +
+          find android/app -name "build.gradle*" -type f -exec sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 26/g' {} +
 
           echo "==> Setting Android SDK path in local.properties..."
           echo "sdk.dir=$ANDROID_SDK_ROOT" > android/local.properties

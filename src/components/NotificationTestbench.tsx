@@ -23,6 +23,22 @@ export const NotificationTestbench: React.FC<NotificationTestbenchProps> = ({
 
   const presets = [
     {
+      label: 'PhonePe: Send ₹1 to Friend (Rahul)',
+      source: 'phonepe' as PaymentSource,
+      pkg: 'com.phonepe.app',
+      title: 'PhonePe',
+      body: 'Paid ₹1 to Rahul Sharma. Txn ID: T240918123456',
+      type: 'success',
+    },
+    {
+      label: 'Bank SMS: Debited INR 1.00 via UPI',
+      source: 'bank' as PaymentSource,
+      pkg: 'com.google.android.apps.messaging',
+      title: 'VM-HDFCBK',
+      body: 'A/c XX4120 debited by INR 1.00 on 18-Sep via UPI to Rahul Sharma. Avl Bal INR 14,230. Ref 425619283741',
+      type: 'success',
+    },
+    {
       label: 'GPay: ABC Supermarket (₹450)',
       source: 'gpay' as PaymentSource,
       pkg: 'com.google.android.apps.nbu.paisa.user',
@@ -44,14 +60,6 @@ export const NotificationTestbench: React.FC<NotificationTestbenchProps> = ({
       pkg: 'net.one97.paytm',
       title: 'Paytm',
       body: 'Paid ₹120 at Chai Point. Order ID: PT10023490',
-      type: 'success',
-    },
-    {
-      label: 'Bank UPI: Swiggy Dinner (₹650)',
-      source: 'bank' as PaymentSource,
-      pkg: 'in.org.npci.upiapp',
-      title: 'UPI Transaction Alert',
-      body: 'Rs. 650.00 debited from a/c **4120 towards Swiggy. UPI Ref: 425619283741',
       type: 'success',
     },
     {

@@ -18,6 +18,8 @@ import {
   AlertCircle,
   Trash2,
   Lock,
+  Play,
+  Video,
 } from 'lucide-react';
 import { Expense, Category, PaymentSource, TransactionStatus } from './types';
 import { DEFAULT_CATEGORIES } from './data/defaultCategories';
@@ -27,6 +29,7 @@ import { TransactionDetailModal } from './components/TransactionDetailModal';
 import { ManualExpenseModal } from './components/ManualExpenseModal';
 import { ArchitectureDocs } from './components/ArchitectureDocs';
 import { CodeExplorer } from './components/CodeExplorer';
+import { PhoneSimulatorVideo } from './components/PhoneSimulatorVideo';
 import { AppLogo } from './components/AppLogo';
 import { PinScreen } from './components/PinScreen';
 import { TrendsView } from './components/TrendsView';
@@ -81,7 +84,7 @@ const INITIAL_EXPENSES: Expense[] = [
 ];
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'app' | 'architecture' | 'code'>('app');
+  const [activeTab, setActiveTab] = useState<'app' | 'video' | 'architecture' | 'code'>('app');
   const [appSubTab, setAppSubTab] = useState<'expenses' | 'trends' | 'simulator' | 'settings'>('expenses');
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true);
   const [savedPin, setSavedPin] = useState<string>('1234');
@@ -218,11 +221,12 @@ export default function App() {
     // 4. Extract Merchant
     let merchant = 'UPI Recipient';
     const payeeMatch =
-      fullText.match(/(?:paid|sent|payment of)\s+(?:₹|rs\.?|inr)?\s*[0-9,.]+\s+(?:to|at)\s+([^,.\n]+)/i) ||
+      fullText.match(/(?:paid|sent|payment of|transferred)\s+(?:₹|rs\.?|inr)?\s*[0-9,.]+\s+(?:to|at)\s+([^,.\n]+)/i) ||
+      fullText.match(/(?:paid to|sent to|transferred to)\s+([^,.\n]+)/i) ||
       fullText.match(/towards\s+([^,.\n]+)/i);
 
     if (payeeMatch && payeeMatch[1]) {
-      merchant = payeeMatch[1].replace(/via|using|ref|txn.*/i, '').trim();
+      merchant = payeeMatch[1].replace(/via|using|ref|txn|avl|bal|successful.*/i, '').trim();
     }
 
     // 5. Extract Reference ID
@@ -247,59 +251,69 @@ export default function App() {
     }
 
     // Category Suggestion
-    let suggestedCategoryId: string | undefined;
+    let initialCategoryId = 'cat_other';
     const lowMerch = merchant.toLowerCase();
     if (lowMerch.includes('swiggy') || lowMerch.includes('coffee') || lowMerch.includes('food') || lowMerch.includes('cafe')) {
-      suggestedCategoryId = 'cat_food';
+      initialCategoryId = 'cat_food';
     } else if (lowMerch.includes('supermarket') || lowMerch.includes('market') || lowMerch.includes('grocer') || lowMerch.includes('foods')) {
-      suggestedCategoryId = 'cat_groceries';
+      initialCategoryId = 'cat_groceries';
     } else if (lowMerch.includes('petrol') || lowMerch.includes('fuel')) {
-      suggestedCategoryId = 'cat_fuel';
+      initialCategoryId = 'cat_fuel';
+    } else if (lowMerch.includes('rahul') || lowMerch.includes('friend') || lowMerch.includes('transfer')) {
+      initialCategoryId = 'cat_transfer';
     }
 
-    // Prompt user with the Actionable Notification Banner
+    const newExpenseId = 'exp_' + Date.now();
+    const autoRecordedExpense: Expense = {
+      id: newExpenseId,
+      amount: cleanAmount,
+      merchant,
+      categoryId: initialCategoryId,
+      timestamp: new Date(now).toISOString(),
+      paymentSource: source,
+      status: 'success',
+      referenceId,
+      rawNotificationText: fullText,
+    };
+
+    // Auto-record immediately (Zero manual entry)
+    setExpenses((prev) => [autoRecordedExpense, ...prev]);
+
+    // Also prompt user with the Actionable Notification Banner so they can switch category
     setPendingNotification({
-      id: 'notif_' + Date.now(),
+      id: newExpenseId,
       amount: cleanAmount,
       merchant,
       source,
       referenceId,
       rawText: fullText,
-      suggestedCategoryId,
+      suggestedCategoryId: initialCategoryId,
       timestamp: now,
     });
 
     setSimulationBanner({
       type: 'success',
-      message: `🔔 Payment notification detected from ${source.toUpperCase()}! Tap a category in the banner to record.`,
+      message: `🔔 ₹${cleanAmount} paid to "${merchant}" auto-recorded! Tap a category to change.`,
     });
-    setTimeout(() => setSimulationBanner(null), 4000);
+    setTimeout(() => setSimulationBanner(null), 5000);
   };
 
   // Record category from Actionable Notification (Zero manual entry)
   const handleAssignCategory = (categoryId: string) => {
     if (!pendingNotification) return;
 
-    const newExpense: Expense = {
-      id: 'exp_' + Date.now(),
-      amount: pendingNotification.amount,
-      merchant: pendingNotification.merchant,
-      categoryId,
-      timestamp: new Date(pendingNotification.timestamp).toISOString(),
-      paymentSource: pendingNotification.source,
-      status: 'success',
-      referenceId: pendingNotification.referenceId,
-      rawNotificationText: pendingNotification.rawText,
-    };
-
-    setExpenses((prev) => [newExpense, ...prev]);
+    setExpenses((prev) =>
+      prev.map((exp) =>
+        exp.id === pendingNotification.id ? { ...exp, categoryId } : exp
+      )
+    );
     setPendingNotification(null);
 
     setSimulationBanner({
       type: 'success',
-      message: `✅ Saved ₹${newExpense.amount} at ${newExpense.merchant} under ${categories.find(c => c.id === categoryId)?.name}!`,
+      message: `✅ Categorized as ${categories.find((c) => c.id === categoryId)?.name || 'Updated'}!`,
     });
-    setTimeout(() => setSimulationBanner(null), 3500);
+    setTimeout(() => setSimulationBanner(null), 3000);
   };
 
   // Save manual expense
@@ -367,6 +381,20 @@ export default function App() {
             >
               <Smartphone className="w-3.5 h-3.5 text-teal-600" />
               <span>Mobile App Preview</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('video')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                activeTab === 'video'
+                  ? 'bg-teal-700 text-white shadow-xs'
+                  : 'text-teal-800 bg-teal-50 hover:bg-teal-100'
+              }`}
+            >
+              <Play className="w-3.5 h-3.5 fill-current" />
+              <span>Phone Simulation Video</span>
+              <span className="bg-amber-400 text-amber-950 text-[9px] px-1.5 py-0.2 rounded-full font-bold">
+                SIMULATOR
+              </span>
             </button>
             <button
               onClick={() => setActiveTab('architecture')}
@@ -457,7 +485,9 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
-        {activeTab === 'architecture' ? (
+        {activeTab === 'video' ? (
+          <PhoneSimulatorVideo />
+        ) : activeTab === 'architecture' ? (
           <ArchitectureDocs />
         ) : activeTab === 'code' ? (
           <CodeExplorer />
@@ -549,6 +579,33 @@ export default function App() {
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                 {/* Left Column: Phone Shell Preview */}
                 <div className="lg:col-span-7 space-y-4">
+                  {/* Video Walkthrough Quick Launcher */}
+                  <div className="bg-gradient-to-r from-teal-900 via-teal-800 to-slate-900 text-white p-3.5 rounded-2xl shadow-xs border border-teal-700/60 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-teal-500/20 border border-teal-400/30 flex items-center justify-center shrink-0">
+                        <Play className="w-4 h-4 text-teal-300 fill-teal-300" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-white flex items-center gap-1.5">
+                          How it works on Android 11
+                          <span className="text-[10px] bg-amber-400 text-amber-950 font-extrabold px-1.5 py-0.2 rounded-full">
+                            Video Demo
+                          </span>
+                        </p>
+                        <p className="text-[11px] text-teal-200">
+                          Watch the step-by-step video simulation of sending ₹1 in PhonePe & auto-logging.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setActiveTab('video')}
+                      className="bg-white hover:bg-teal-50 text-teal-900 text-xs font-bold px-3 py-1.5 rounded-xl shrink-0 shadow-xs flex items-center gap-1 transition-all"
+                    >
+                      <span>Watch</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
                   {/* Actionable Notification Prompt Banner */}
                   <ActionableNotificationBar
                     notification={pendingNotification}

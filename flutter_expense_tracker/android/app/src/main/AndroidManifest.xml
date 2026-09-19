@@ -6,13 +6,16 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
-    <!-- Android 11 (API 30) Package Visibility declaration for UPI Apps -->
+    <!-- Android 11 (API 30) Package Visibility declaration for UPI & Banking Apps -->
     <queries>
         <package android:name="com.google.android.apps.nbu.paisa.user" />
         <package android:name="com.phonepe.app" />
         <package android:name="net.one97.paytm" />
         <package android:name="in.org.npci.upiapp" />
         <package android:name="com.dreamplug.androidapp" />
+        <package android:name="in.amazon.mShop.android.shopping" />
+        <package android:name="com.google.android.apps.messaging" />
+        <package android:name="com.samsung.android.messaging" />
     </queries>
 
     <application

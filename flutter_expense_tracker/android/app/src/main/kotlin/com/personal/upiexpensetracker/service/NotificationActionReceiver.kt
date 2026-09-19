@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import org.json.JSONArray
 
 class NotificationActionReceiver : BroadcastReceiver() {
 
@@ -20,7 +21,6 @@ class NotificationActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action ?: return
         val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, -1)
-
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         when (action) {
@@ -30,7 +30,27 @@ class NotificationActionReceiver : BroadcastReceiver() {
 
                 Log.d("NotificationAction", "Action received: Record expense $transactionId with category $categoryId")
 
-                // Forward to Flutter via PaymentNotificationListenerService's eventSink if app is open
+                // 1. Directly update category in SharedPreferences
+                try {
+                    val prefs = context.getSharedPreferences(PaymentNotificationListenerService.PREFS_NAME, Context.MODE_PRIVATE)
+                    val existingJson = prefs.getString(PaymentNotificationListenerService.KEY_EXPENSES, "[]") ?: "[]"
+                    val jsonArray = JSONArray(existingJson)
+
+                    for (i in 0 until jsonArray.length()) {
+                        val obj = jsonArray.getJSONObject(i)
+                        if (obj.optString("id", "") == transactionId) {
+                            obj.put("categoryId", categoryId)
+                            break
+                        }
+                    }
+
+                    prefs.edit().putString(PaymentNotificationListenerService.KEY_EXPENSES, jsonArray.toString()).apply()
+                    Log.d("NotificationAction", "Updated category for $transactionId to $categoryId in SharedPreferences")
+                } catch (e: Exception) {
+                    Log.e("NotificationAction", "Failed to update category in SharedPreferences", e)
+                }
+
+                // 2. Forward to Flutter via PaymentNotificationListenerService's eventSink if app is open
                 PaymentNotificationListenerService.notificationEventSink?.invoke(
                     mapOf(
                         "actionType" to "category_selected",
@@ -39,15 +59,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
                     )
                 )
 
-                // Update database or notify Flutter bridge
-                val forwardIntent = Intent("com.personal.upiexpensetracker.CATEGORY_SELECTED").apply {
-                    putExtra("transaction_id", transactionId)
-                    putExtra("category_id", categoryId)
-                    setPackage(context.packageName)
-                }
-                context.sendBroadcast(forwardIntent)
-
-                // Dismiss notification after category selection
+                // 3. Dismiss notification after category selection
                 if (notificationId != -1) {
                     notificationManager.cancel(notificationId)
                 }

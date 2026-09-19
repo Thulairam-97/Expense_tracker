@@ -53,11 +53,13 @@ class PhonePeNotificationParser extends BaseNotificationParser {
     final amount = extractAmount(fullText);
     if (amount == null) return null;
 
-    String merchant = 'PhonePe Merchant';
+    String merchant = 'PhonePe Recipient';
     final merchantPatterns = [
-      RegExp(r'(?:payment of|paid)\s+(?:₹|rs\.?|inr)?\s*[0-9\.,]+\s+to\s+([^,\.\n\r]+?)(?:\s+was\s+successful|\s+is\s+successful|\.|\,|$)', caseSensitive: false),
-      RegExp(r'(?:paid to)\s+([^,\.\n\r]+)', caseSensitive: false),
-      RegExp(r'to\s+([^,\.\n\r]+?)\s+successful', caseSensitive: false),
+      RegExp(r'(?:payment of|paid|sent|transferred)\s+(?:₹|rs\.?|inr)?\s*[0-9\.,]+\s+to\s+([^,\.\n\r]+?)(?:\s+was\s+successful|\s+is\s+successful|\.|\,|$)', caseSensitive: false),
+      RegExp(r'(?:₹|rs\.?|inr)?\s*[0-9\.,]+\s+(?:sent|paid|transferred)\s+to\s+([^,\.\n\r]+?)(?:\s+was\s+successful|\s+is\s+successful|\.|\,|$)', caseSensitive: false),
+      RegExp(r'(?:paid to|sent to|transferred to)\s+([^,\.\n\r]+?)(?:\s+was|\s+is|\.|\,|$)', caseSensitive: false),
+      RegExp(r'to\s+([^,\.\n\r]+?)\s+(?:was\s+successful|is\s+successful|successful)', caseSensitive: false),
+      RegExp(r'(?:money sent to)\s+([^,\.\n\r]+)', caseSensitive: false),
     ];
 
     for (final pattern in merchantPatterns) {

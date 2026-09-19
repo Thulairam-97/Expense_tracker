@@ -58,7 +58,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   static const MethodChannel _methodChannel =
       MethodChannel('com.personal.upiexpensetracker/notification_control');
   static const EventChannel _eventChannel =
@@ -84,6 +84,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadInitialData();
       _checkPermissionStatus();
@@ -93,8 +94,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _notificationSubscription?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadInitialData();
+      _checkPermissionStatus();
+    }
   }
 
   Future<void> _loadInitialData() async {
@@ -132,13 +142,53 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _openAppSettings() async {
+    try {
+      await _methodChannel.invokeMethod('openAppSettings');
+    } catch (e) {
+      debugPrint('Error opening app details: $e');
+    }
+  }
+
+  Future<void> _simulatePhonePeTransaction() async {
+    try {
+      final success = await _methodChannel.invokeMethod('simulatePaymentNotification', {
+        'amount': 1.0,
+        'merchant': 'Rahul (Friend)',
+        'source': 'phonepe',
+        'rawText': 'Paid ₹1 to Rahul. Txn ID: T24091812345',
+      });
+      if (success == true) {
+        await _loadInitialData();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✅ Test ₹1 PhonePe Payment triggered & auto-recorded!'),
+              backgroundColor: Color(0xFF0F766E),
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error simulating PhonePe payment: $e');
+    }
+  }
+
   void _initNotificationStream() {
     try {
       _notificationSubscription = _eventChannel.receiveBroadcastStream().listen(
         (dynamic event) {
           if (event is Map) {
-            // Check if this is a category quick-action from notification buttons
             final actionType = event['actionType'] as String?;
+
+            // 1. Native Service directly saved expense in background
+            if (actionType == 'expense_recorded') {
+              _loadInitialData();
+              return;
+            }
+
+            // 2. Category quick-action from notification buttons
             if (actionType == 'category_selected') {
               final catId = event['categoryId'] as String? ?? 'cat_other';
               _recordCategoryForPending(catId);
@@ -148,12 +198,14 @@ class _HomeScreenState extends State<HomeScreen> {
             final packageName = event['packageName'] as String? ?? '';
             final title = event['title'] as String? ?? '';
             final text = event['text'] as String? ?? '';
+            final bigText = event['bigText'] as String? ?? '';
+            final body = bigText.isNotEmpty ? bigText : text;
             final postTime = event['timestamp'] as int? ?? DateTime.now().millisecondsSinceEpoch;
 
             _handleIncomingNotification(
               packageName: packageName,
               title: title,
-              body: text,
+              body: body,
               timestamp: DateTime.fromMillisecondsSinceEpoch(postTime),
             );
           }
@@ -209,13 +261,28 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    // 4. Trigger actionable native Android notification with category action buttons
-    _showActionableAndroidNotification(parsed);
+    // 4. ZERO-MANUAL ENTRY: Auto-record expense immediately!
+    final autoExpense = Expense(
+      id: 'exp_${DateTime.now().millisecondsSinceEpoch}',
+      amount: parsed.amount,
+      merchant: parsed.merchant,
+      categoryId: 'cat_other',
+      timestamp: parsed.timestamp,
+      paymentSource: parsed.source,
+      status: TransactionStatus.success,
+      referenceId: parsed.referenceId,
+      rawNotificationText: parsed.rawText,
+      createdAt: DateTime.now(),
+    );
 
-    // 5. Update in-app state for immediate response if app is open
     setState(() {
+      _expenses.insert(0, autoExpense);
       _pendingNotification = parsed;
     });
+    _persistExpenses();
+
+    // 5. Trigger actionable native Android notification with category action buttons
+    _showActionableAndroidNotification(parsed);
   }
 
   Future<void> _showActionableAndroidNotification(ParsedTransaction parsed) async {
@@ -232,26 +299,44 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _recordCategoryForPending(String categoryId) {
-    if (_pendingNotification == null) return;
+    if (_pendingNotification == null) {
+      _loadInitialData();
+      return;
+    }
 
-    final newExpense = Expense(
-      id: 'exp_${DateTime.now().millisecondsSinceEpoch}',
-      amount: _pendingNotification!.amount,
-      merchant: _pendingNotification!.merchant,
-      categoryId: categoryId,
-      timestamp: _pendingNotification!.timestamp,
-      paymentSource: _pendingNotification!.source,
-      status: TransactionStatus.success,
-      referenceId: _pendingNotification!.referenceId,
-      rawNotificationText: _pendingNotification!.rawText,
-      createdAt: DateTime.now(),
-    );
+    final targetAmount = _pendingNotification!.amount;
+    final targetMerchant = _pendingNotification!.merchant;
+    final targetRef = _pendingNotification!.referenceId;
 
-    setState(() {
-      _expenses.insert(0, newExpense);
-      _duplicateDetector.recordAccepted(_pendingNotification!);
-      _pendingNotification = null;
-    });
+    // Find and update the auto-recorded expense
+    final existingIdx = _expenses.indexWhere((e) =>
+        (targetRef != null && e.referenceId == targetRef) ||
+        (e.amount == targetAmount && e.merchant == targetMerchant));
+
+    if (existingIdx != -1) {
+      setState(() {
+        _expenses[existingIdx] = _expenses[existingIdx].copyWith(categoryId: categoryId);
+        _pendingNotification = null;
+      });
+    } else {
+      final newExpense = Expense(
+        id: 'exp_${DateTime.now().millisecondsSinceEpoch}',
+        amount: targetAmount,
+        merchant: targetMerchant,
+        categoryId: categoryId,
+        timestamp: _pendingNotification!.timestamp,
+        paymentSource: _pendingNotification!.source,
+        status: TransactionStatus.success,
+        referenceId: targetRef,
+        rawNotificationText: _pendingNotification!.rawText,
+        createdAt: DateTime.now(),
+      );
+      setState(() {
+        _expenses.insert(0, newExpense);
+        _pendingNotification = null;
+      });
+    }
+
     _persistExpenses();
 
     final catName =
@@ -259,10 +344,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Recorded ₹${newExpense.amount.toStringAsFixed(0)} under $catName'),
+        content: Text('Categorized as $catName'),
         backgroundColor: const Color(0xFF0F766E),
       ),
     );
+  }
   }
 
   void _showAddManualExpenseDialog() {
@@ -696,26 +782,75 @@ class _HomeScreenState extends State<HomeScreen> {
                       children: [
                         Icon(Icons.warning_amber_rounded, color: Colors.amber.shade900),
                         const SizedBox(width: 8),
-                        const Text(
-                          'Notification Access Required',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                        const Expanded(
+                          child: Text(
+                            'Notification Access Required for PhonePe & UPI',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                          ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 8),
                     const Text(
-                      'To automatically detect GPay, PhonePe & Paytm payments with zero manual entry, grant notification access in Android Settings.',
+                      'To auto-detect payments when you send money on PhonePe, GPay, or receive bank SMS, Android requires Notification Access to be turned ON.',
                       style: TextStyle(fontSize: 12, color: Colors.black87),
                     ),
-                    const SizedBox(height: 12),
-                    FilledButton.icon(
-                      onPressed: _openNotificationSettings,
-                      icon: const Icon(Icons.settings, size: 16),
-                      label: const Text('Enable in Settings'),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.amber.shade900,
-                        foregroundColor: Colors.white,
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.amber.shade200),
                       ),
+                      child: const Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '⚠️ Android 13/14/15 Notice:',
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black87),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            'If the toggle is greyed out ("Restricted Setting"): Tap "App Info" below -> Tap top-right 3 dots (⋮) -> Tap "Allow restricted settings" -> Enter PIN/fingerprint -> Then return here and tap "Enable in Settings".',
+                            style: TextStyle(fontSize: 11, color: Colors.black54),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        FilledButton.icon(
+                          onPressed: _openNotificationSettings,
+                          icon: const Icon(Icons.notifications_active, size: 16),
+                          label: const Text('1. Enable in Settings'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.amber.shade900,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: _openAppSettings,
+                          icon: const Icon(Icons.app_settings_alt, size: 16),
+                          label: const Text('2. App Info (Fix Restricted)'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.amber.shade900,
+                            side: BorderSide(color: Colors.amber.shade800),
+                          ),
+                        ),
+                        ElevatedButton.icon(
+                          onPressed: _simulatePhonePeTransaction,
+                          icon: const Icon(Icons.flash_on, size: 16),
+                          label: const Text('3. Test ₹1 PhonePe Payment'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF0F766E),
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -723,22 +858,36 @@ class _HomeScreenState extends State<HomeScreen> {
             )
           else
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              padding: const EdgeInsets.all(12),
               margin: const EdgeInsets.only(bottom: 12),
               decoration: BoxDecoration(
                 color: const Color(0xFFECFDF5),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: const Color(0xFFA7F3D0)),
               ),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.check_circle, color: Color(0xFF0F766E), size: 18),
-                  const SizedBox(width: 8),
-                  const Expanded(
-                    child: Text(
-                      'Active & Listening for UPI Payments (GPay, PhonePe, Paytm)',
-                      style: TextStyle(fontSize: 12, color: Color(0xFF0F766E), fontWeight: FontWeight.w600),
-                    ),
+                  Row(
+                    children: [
+                      const Icon(Icons.check_circle, color: Color(0xFF0F766E), size: 18),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'Active & Listening for PhonePe, GPay, Paytm & Bank SMS',
+                          style: TextStyle(fontSize: 12, color: Color(0xFF0F766E), fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: _simulatePhonePeTransaction,
+                        icon: const Icon(Icons.play_arrow_rounded, size: 16),
+                        label: const Text('Test ₹1', style: TextStyle(fontSize: 12)),
+                        style: TextButton.styleFrom(
+                          foregroundColor: const Color(0xFF0F766E),
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),

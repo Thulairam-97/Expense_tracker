@@ -1,16 +1,17 @@
 package com.personal.upiexpensetracker
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.provider.Settings
 import androidx.annotation.NonNull
-import androidx.core.app.NotificationCompat
+import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationManagerCompat
-import com.personal.upiexpensetracker.service.NotificationActionReceiver
+import androidx.core.content.ContextCompat
 import com.personal.upiexpensetracker.service.PaymentNotificationListenerService
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -21,18 +22,17 @@ class MainActivity : FlutterActivity() {
 
     private val METHOD_CHANNEL = "com.personal.upiexpensetracker/notification_control"
     private val EVENT_CHANNEL = "com.personal.upiexpensetracker/notification_stream"
-    private val CHANNEL_ID = "upi_expense_actions_channel"
+    private val NOTIFICATION_PERMISSION_REQ_CODE = 101
 
     private var eventSink: EventChannel.EventSink? = null
 
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        checkAndRequestPostNotificationPermission()
+    }
+
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-
-        try {
-            createNotificationChannel()
-        } catch (e: Exception) {
-            // Non-fatal notification channel creation warning
-        }
 
         try {
             // 1. MethodChannel for permission check, settings launch, and actionable notification trigger
@@ -42,9 +42,42 @@ class MainActivity : FlutterActivity() {
                         val isGranted = isNotificationAccessGranted()
                         result.success(isGranted)
                     }
+                    "isPostNotificationGranted" -> {
+                        val isGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+                        } else {
+                            true
+                        }
+                        result.success(isGranted)
+                    }
+                    "requestPostNotificationPermission" -> {
+                        checkAndRequestPostNotificationPermission()
+                        result.success(true)
+                    }
                     "openNotificationSettings" -> {
                         openNotificationListenerSettings()
                         result.success(true)
+                    }
+                    "openAppSettings" -> {
+                        openAppDetailsSettings()
+                        result.success(true)
+                    }
+                    "simulatePaymentNotification" -> {
+                        val amount = call.argument<Double>("amount") ?: 1.0
+                        val merchant = call.argument<String>("merchant") ?: "Rahul"
+                        val source = call.argument<String>("source") ?: "phonepe"
+                        val rawText = call.argument<String>("rawText") ?: "Paid ₹$amount to $merchant"
+
+                        val success = PaymentNotificationListenerService.processPaymentPayload(
+                            context = applicationContext,
+                            packageName = "com.phonepe.app",
+                            title = "PhonePe",
+                            text = rawText,
+                            bigText = rawText,
+                            subText = "UPI Payment Successful",
+                            postTime = System.currentTimeMillis()
+                        )
+                        result.success(success)
                     }
                     "showActionableCategoryNotification" -> {
                         val amount = call.argument<Double>("amount") ?: 0.0
@@ -52,19 +85,26 @@ class MainActivity : FlutterActivity() {
                         val transactionId = call.argument<String>("transactionId") ?: ""
                         val notificationId = call.argument<Int>("notificationId") ?: 1001
 
-                        showCategoryPickerNotification(amount, merchant, transactionId, notificationId)
+                        PaymentNotificationListenerService.showActionableCategoryNotification(
+                            context = applicationContext,
+                            amount = amount,
+                            merchant = merchant,
+                            transactionId = transactionId,
+                            notificationId = notificationId,
+                            sourceName = "UPI"
+                        )
                         result.success(true)
                     }
                     "saveLocalData" -> {
                         val key = call.argument<String>("key") ?: ""
                         val value = call.argument<String>("value") ?: ""
-                        val prefs = getSharedPreferences("upi_tracker_local_prefs", Context.MODE_PRIVATE)
+                        val prefs = getSharedPreferences(PaymentNotificationListenerService.PREFS_NAME, Context.MODE_PRIVATE)
                         prefs.edit().putString(key, value).apply()
                         result.success(true)
                     }
                     "getLocalData" -> {
                         val key = call.argument<String>("key") ?: ""
-                        val prefs = getSharedPreferences("upi_tracker_local_prefs", Context.MODE_PRIVATE)
+                        val prefs = getSharedPreferences(PaymentNotificationListenerService.PREFS_NAME, Context.MODE_PRIVATE)
                         val value = prefs.getString(key, null)
                         result.success(value)
                     }
@@ -94,6 +134,18 @@ class MainActivity : FlutterActivity() {
             )
         } catch (e: Exception) {
             // Prevent fatal startup crash if channel registration has an exception
+        }
+    }
+
+    private fun checkAndRequestPostNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                    NOTIFICATION_PERMISSION_REQ_CODE
+                )
+            }
         }
     }
 
@@ -130,83 +182,15 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val name = "UPI Expense Categorization"
-            val descriptionText = "Actionable notifications to quick-categorize UPI payments"
-            val importance = NotificationManager.IMPORTANCE_HIGH
-            val channel = NotificationChannel(CHANNEL_ID, name, importance).apply {
-                description = descriptionText
-                enableVibration(true)
+    private fun openAppDetailsSettings() {
+        try {
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.fromParts("package", packageName, null)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            val notificationManager: NotificationManager =
-                getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
+            startActivity(intent)
+        } catch (e: Exception) {
+            openNotificationListenerSettings()
         }
-    }
-
-    private fun showCategoryPickerNotification(
-        amount: Double,
-        merchant: String,
-        transactionId: String,
-        notificationId: Int
-    ) {
-        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
-        // Intent to open App when tapping the notification body
-        val contentIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("transaction_id", transactionId)
-        }
-        val contentPendingIntent = PendingIntent.getActivity(
-            this,
-            notificationId,
-            contentIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        // Helper to build Action PendingIntents for Category Buttons
-        fun createCategoryActionPendingIntent(catId: String): PendingIntent {
-            val intent = Intent(this, NotificationActionReceiver::class.java).apply {
-                action = NotificationActionReceiver.ACTION_RECORD_CATEGORY
-                putExtra(NotificationActionReceiver.EXTRA_TRANSACTION_ID, transactionId)
-                putExtra(NotificationActionReceiver.EXTRA_CATEGORY_ID, catId)
-                putExtra(NotificationActionReceiver.EXTRA_NOTIFICATION_ID, notificationId)
-            }
-            return PendingIntent.getBroadcast(
-                this,
-                (transactionId + catId).hashCode(),
-                intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-        }
-
-        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_menu_agenda)
-            .setContentTitle("₹${amount.toInt()} paid to $merchant")
-            .setContentText("Tap a category to quickly record this expense:")
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setAutoCancel(true)
-            .setContentIntent(contentPendingIntent)
-            // Action 1: Food
-            .addAction(
-                android.R.drawable.ic_menu_compass,
-                "🍔 Food",
-                createCategoryActionPendingIntent("cat_food")
-            )
-            // Action 2: Grocery
-            .addAction(
-                android.R.drawable.ic_menu_add,
-                "🛒 Grocery",
-                createCategoryActionPendingIntent("cat_groceries")
-            )
-            // Action 3: Fuel
-            .addAction(
-                android.R.drawable.ic_menu_directions,
-                "⛽ Fuel",
-                createCategoryActionPendingIntent("cat_fuel")
-            )
-
-        notificationManager.notify(notificationId, builder.build())
     }
 }

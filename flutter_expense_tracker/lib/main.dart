@@ -349,7 +349,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ),
     );
   }
-  }
 
   void _showAddManualExpenseDialog() {
     final amountController = TextEditingController();

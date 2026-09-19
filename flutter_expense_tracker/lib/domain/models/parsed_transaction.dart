@@ -29,6 +29,6 @@ class ParsedTransaction {
     // Normalizing merchant name (removing spaces, lowercase)
     final normMerchant = merchant.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
     final timeWindow = timestamp.millisecondsSinceEpoch ~/ (1000 * 60 * 3); // 3-minute bucket
-    return '${amount.toStringAsFixed(2)}_$normMerchant}_${referenceId ?? 'noref'}_$timeWindow';
+    return '${amount.toStringAsFixed(2)}_${normMerchant}_${referenceId ?? 'noref'}_$timeWindow';
   }
 }

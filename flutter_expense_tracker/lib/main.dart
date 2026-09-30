@@ -75,7 +75,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   // Real live expenses list (starts empty for real live tracking)
   List<Expense> _expenses = [];
 
-  final List<ExpenseCategory> _categories = ExpenseCategory.defaultCategories;
+  List<ExpenseCategory> _categories = List.from(ExpenseCategory.defaultCategories);
   String _searchQuery = '';
   String _selectedCategoryFilter = 'all';
   String? _currentUserName;
@@ -109,12 +109,81 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _loadInitialData() async {
     final savedExpenses = await LocalExpenseStorage.loadExpenses();
+    final customCats = await LocalExpenseStorage.loadCustomCategories();
     final name = await LocalExpenseStorage.getUserName();
+    final mergedCategories = List<ExpenseCategory>.from(ExpenseCategory.defaultCategories);
+    for (final custom in customCats) {
+      if (!mergedCategories.any((c) => c.id == custom.id)) {
+        mergedCategories.add(custom);
+      }
+    }
     setState(() {
       _expenses = savedExpenses ?? [];
+      _categories = mergedCategories;
       _currentUserName = name;
       _isLoadingData = false;
     });
+  }
+
+  Future<ExpenseCategory> _createCustomCategory(String rawName) async {
+    final cleanName = rawName.trim();
+    final existing = _categories.where((c) => c.name.toLowerCase() == cleanName.toLowerCase()).toList();
+    if (existing.isNotEmpty) return existing.first;
+
+    final slug = cleanName.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_');
+    final newCat = ExpenseCategory(
+      id: 'cat_custom_${slug.isNotEmpty ? slug : DateTime.now().millisecondsSinceEpoch}',
+      name: cleanName[0].toUpperCase() + cleanName.substring(1),
+      iconName: 'label',
+      colorValue: 0xFF0D9488,
+      isDefault: false,
+      displayOrder: _categories.length + 1,
+    );
+
+    final customCats = await LocalExpenseStorage.loadCustomCategories();
+    customCats.add(newCat);
+    await LocalExpenseStorage.saveCustomCategories(customCats);
+
+    setState(() {
+      _categories.add(newCat);
+    });
+    return newCat;
+  }
+
+  void _showAddCustomCategoryDialog({required Function(ExpenseCategory) onCreated}) {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('New Custom Category'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Category Name',
+            hintText: 'e.g. Gas Cylinder, Medical, Milk',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final text = controller.text.trim();
+              if (text.isEmpty) return;
+              Navigator.pop(ctx);
+              final created = await _createCustomCategory(text);
+              onCreated(created);
+            },
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFF0F766E)),
+            child: const Text('Save Category'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _persistExpenses() async {
@@ -192,6 +261,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             if (actionType == 'category_selected') {
               final catId = event['categoryId'] as String? ?? 'cat_other';
               _recordCategoryForPending(catId);
+              return;
+            }
+
+            // 3. Dynamic custom category typed directly in the notification bar (+ Category)
+            if (actionType == 'custom_category_created') {
+              final catName = event['categoryName'] as String? ?? 'Custom';
+              _loadInitialData().then((_) {
+                if (mounted) {
+                  setState(() => _pendingNotification = null);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('✅ Created & categorized under "$catName"'),
+                      backgroundColor: const Color(0xFF0F766E),
+                    ),
+                  );
+                }
+              });
               return;
             }
 
@@ -931,14 +1017,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     Wrap(
                       spacing: 8,
                       runSpacing: 6,
-                      children: _categories.take(5).map((cat) {
-                        return ActionChip(
-                          label: Text(cat.name),
-                          backgroundColor: Colors.white.withOpacity(0.15),
-                          labelStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 12),
-                          onPressed: () => _recordCategoryForPending(cat.id),
-                        );
-                      }).toList(),
+                      children: [
+                        ..._categories.take(5).map((cat) {
+                          return ActionChip(
+                            label: Text(cat.name),
+                            backgroundColor: Colors.white.withOpacity(0.15),
+                            labelStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 12),
+                            onPressed: () => _recordCategoryForPending(cat.id),
+                          );
+                        }),
+                        ActionChip(
+                          avatar: const Icon(Icons.add, size: 16, color: Color(0xFF0F766E)),
+                          label: const Text('+ Custom'),
+                          backgroundColor: Colors.white,
+                          labelStyle: const TextStyle(color: Color(0xFF0F766E), fontWeight: FontWeight.bold, fontSize: 12),
+                          onPressed: () {
+                            _showAddCustomCategoryDialog(
+                              onCreated: (newCat) => _recordCategoryForPending(newCat.id),
+                            );
+                          },
+                        ),
+                      ],
                     ),
                   ],
                 ),

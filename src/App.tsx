@@ -316,6 +316,40 @@ export default function App() {
     setTimeout(() => setSimulationBanner(null), 3000);
   };
 
+  // Create and assign dynamic custom category directly from Notification Bar (+ button)
+  const handleAddCustomCategoryFromNotification = (rawName: string) => {
+    if (!pendingNotification) return;
+    const cleanName = rawName.trim().replace(/^./, (c) => c.toUpperCase());
+    const existing = categories.find((c) => c.name.toLowerCase() === cleanName.toLowerCase());
+    const targetCatId = existing
+      ? existing.id
+      : `cat_custom_${cleanName.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
+
+    if (!existing) {
+      const newCategory: Category = {
+        id: targetCatId,
+        name: cleanName,
+        iconName: 'Tag',
+        color: '#0D9488',
+        isDefault: false,
+      };
+      setCategories((prev) => [...prev, newCategory]);
+    }
+
+    setExpenses((prev) =>
+      prev.map((exp) =>
+        exp.id === pendingNotification.id ? { ...exp, categoryId: targetCatId } : exp
+      )
+    );
+    setPendingNotification(null);
+
+    setSimulationBanner({
+      type: 'success',
+      message: `✅ Dynamic category "${cleanName}" created & saved from Notification Bar!`,
+    });
+    setTimeout(() => setSimulationBanner(null), 4000);
+  };
+
   // Save manual expense
   const handleSaveManual = (expenseData: Omit<Expense, 'id'>) => {
     const newExpense: Expense = {
@@ -611,6 +645,7 @@ export default function App() {
                     notification={pendingNotification}
                     categories={categories}
                     onSelectCategory={handleAssignCategory}
+                    onAddCustomCategory={handleAddCustomCategoryFromNotification}
                     onDismiss={() => setPendingNotification(null)}
                   />
 

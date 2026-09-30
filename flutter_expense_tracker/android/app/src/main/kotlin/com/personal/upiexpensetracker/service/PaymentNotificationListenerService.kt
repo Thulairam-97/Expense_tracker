@@ -12,6 +12,7 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.RemoteInput
 import com.personal.upiexpensetracker.MainActivity
 import org.json.JSONArray
 import org.json.JSONObject
@@ -24,6 +25,8 @@ class PaymentNotificationListenerService : NotificationListenerService() {
         const val CHANNEL_ID = "upi_expense_actions_channel"
         const val PREFS_NAME = "upi_tracker_local_prefs"
         const val KEY_EXPENSES = "persisted_user_expenses_v1"
+        const val KEY_CUSTOM_CATEGORIES = "persisted_custom_categories_v1"
+        const val KEY_REMOTE_INPUT_CATEGORY = "key_custom_category_input"
 
         // Known UPI and banking package identifiers
         val SUPPORTED_UPI_PACKAGES = setOf(
@@ -393,17 +396,50 @@ class PaymentNotificationListenerService : NotificationListenerService() {
 
             val amountFormatted = if (amount % 1.0 == 0.0) amount.toInt().toString() else String.format("%.2f", amount)
 
+            // Build inline RemoteInput action for "+ Category" right inside the notification bar
+            val remoteInput = RemoteInput.Builder(KEY_REMOTE_INPUT_CATEGORY)
+                .setLabel("Type new category name & tap Save...")
+                .build()
+
+            val customCatIntent = Intent(context, NotificationActionReceiver::class.java).apply {
+                action = NotificationActionReceiver.ACTION_ADD_CUSTOM_CATEGORY
+                putExtra(NotificationActionReceiver.EXTRA_TRANSACTION_ID, transactionId)
+                putExtra(NotificationActionReceiver.EXTRA_NOTIFICATION_ID, notificationId)
+            }
+
+            // Android 12+ (API 31+) requires FLAG_MUTABLE for PendingIntents attached to RemoteInput
+            val mutableFlags = if (Build.VERSION.SDK_INT >= 31) {
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+            } else {
+                PendingIntent.FLAG_UPDATE_CURRENT
+            }
+
+            val customCatPendingIntent = PendingIntent.getBroadcast(
+                context,
+                (transactionId + "_custom_cat").hashCode(),
+                customCatIntent,
+                mutableFlags
+            )
+
+            val customCategoryAction = NotificationCompat.Action.Builder(
+                android.R.drawable.ic_input_add,
+                "➕ Category",
+                customCatPendingIntent
+            )
+                .addRemoteInput(remoteInput)
+                .setAllowGeneratedReplies(false)
+                .build()
+
             val builder = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setContentTitle("₹$amountFormatted paid to $merchant")
-                .setContentText("Auto-recorded ($sourceName) • Tap a category:")
+                .setContentText("Auto-recorded ($sourceName) • Tap category or ➕ to type:")
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setAutoCancel(true)
                 .setContentIntent(contentPendingIntent)
                 .addAction(android.R.drawable.ic_menu_compass, "🍔 Food", createCategoryActionPendingIntent("cat_food"))
                 .addAction(android.R.drawable.ic_menu_add, "🛒 Grocery", createCategoryActionPendingIntent("cat_groceries"))
-                .addAction(android.R.drawable.ic_menu_directions, "⛽ Fuel", createCategoryActionPendingIntent("cat_fuel"))
-                .addAction(android.R.drawable.ic_menu_myplaces, "👥 Friend", createCategoryActionPendingIntent("cat_transfer"))
+                .addAction(customCategoryAction)
 
             try {
                 notificationManager.notify(notificationId, builder.build())

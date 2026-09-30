@@ -1,13 +1,49 @@
 import 'dart:convert';
 import 'package:flutter/services.dart';
+import '../../domain/models/category.dart';
 import '../../domain/models/expense.dart';
 
 class LocalExpenseStorage {
   static const MethodChannel _platform =
       MethodChannel('com.personal.upiexpensetracker/notification_control');
   static const String _keyExpenses = 'persisted_user_expenses_v1';
+  static const String _keyCustomCategories = 'persisted_custom_categories_v1';
   static const String _keyUserPin = 'persisted_user_pin_v1';
   static const String _keyUserName = 'persisted_user_name_v1';
+
+  /// Save custom dynamic categories created by the user
+  static Future<void> saveCustomCategories(List<ExpenseCategory> customCategories) async {
+    try {
+      final List<Map<String, dynamic>> mapList =
+          customCategories.map((c) => c.toMap()).toList();
+      final jsonString = jsonEncode(mapList);
+      await _platform.invokeMethod('saveLocalData', {
+        'key': _keyCustomCategories,
+        'value': jsonString,
+      });
+    } catch (_) {}
+  }
+
+  /// Load custom dynamic categories created from notification bar or app
+  static Future<List<ExpenseCategory>> loadCustomCategories() async {
+    try {
+      final String? jsonString = await _platform.invokeMethod<String>('getLocalData', {
+        'key': _keyCustomCategories,
+      });
+      if (jsonString == null || jsonString.isEmpty) {
+        return [];
+      }
+      final dynamic decoded = jsonDecode(jsonString);
+      if (decoded is List) {
+        return decoded
+            .map((item) => ExpenseCategory.fromMap(Map<String, dynamic>.from(item as Map)))
+            .toList();
+      }
+    } catch (_) {
+      return [];
+    }
+    return [];
+  }
 
   /// Save expenses list as JSON in Android SharedPreferences through native channel
   static Future<void> saveExpenses(List<Expense> expenses) async {

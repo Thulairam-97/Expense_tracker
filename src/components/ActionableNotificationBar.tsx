@@ -1,5 +1,5 @@
-import React from 'react';
-import { Bell, Check, X, ArrowRight } from 'lucide-react';
+import React, { useState } from 'react';
+import { Bell, Check, X, Plus } from 'lucide-react';
 import { Category, PaymentSource } from '../types';
 
 interface ActionableNotificationBarProps {
@@ -14,6 +14,7 @@ interface ActionableNotificationBarProps {
   } | null;
   categories: Category[];
   onSelectCategory: (categoryId: string) => void;
+  onAddCustomCategory?: (categoryName: string) => void;
   onDismiss: () => void;
 }
 
@@ -21,12 +22,27 @@ export const ActionableNotificationBar: React.FC<ActionableNotificationBarProps>
   notification,
   categories,
   onSelectCategory,
+  onAddCustomCategory,
   onDismiss,
 }) => {
+  const [isAddingCustom, setIsAddingCustom] = useState(false);
+  const [customCategoryName, setCustomCategoryName] = useState('');
+
   if (!notification) return null;
 
   // Quick top 4 categories
   const quickCategories = categories.slice(0, 4);
+
+  const handleSaveCustom = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = customCategoryName.trim();
+    if (!trimmed) return;
+    if (onAddCustomCategory) {
+      onAddCustomCategory(trimmed);
+    }
+    setCustomCategoryName('');
+    setIsAddingCustom(false);
+  };
 
   return (
     <div className="bg-gradient-to-r from-emerald-900 to-teal-900 text-white rounded-2xl p-4 shadow-xl border border-emerald-700/50 mb-4 animate-in fade-in slide-in-from-top duration-300">
@@ -61,11 +77,11 @@ export const ActionableNotificationBar: React.FC<ActionableNotificationBarProps>
       </div>
 
       <p className="text-xs text-emerald-100/80 mb-2.5 font-medium">
-        Select category to record instantly with zero manual entry:
+        Select category or tap <span className="font-bold text-white">+</span> to type a new category directly in the notification bar:
       </p>
 
       {/* Actionable buttons */}
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
         {quickCategories.map((cat) => {
           const isSuggested = notification.suggestedCategoryId === cat.id;
           return (
@@ -84,15 +100,41 @@ export const ActionableNotificationBar: React.FC<ActionableNotificationBarProps>
           );
         })}
 
-        {/* More categories dropdown / button */}
+        {/* + Button to open inline input field right inside the notification bar */}
         <button
-          onClick={() => onSelectCategory('cat_other')}
-          className="text-xs px-2.5 py-1.5 rounded-lg bg-emerald-800/80 hover:bg-emerald-800 text-emerald-200 border border-emerald-700/50 flex items-center gap-1 transition-all"
+          type="button"
+          onClick={() => setIsAddingCustom((prev) => !prev)}
+          className={`text-xs px-2.5 py-1.5 rounded-lg font-bold flex items-center gap-1 transition-all border ${
+            isAddingCustom
+              ? 'bg-white text-teal-950 border-white shadow-sm'
+              : 'bg-emerald-500/30 hover:bg-emerald-500/40 text-emerald-100 border-emerald-400/40'
+          }`}
+          title="Add custom category in notification bar"
         >
-          <span>Other</span>
-          <ArrowRight className="w-3 h-3" />
+          <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+          <span>Category</span>
         </button>
       </div>
+
+      {/* Inline RemoteInput Field inside Notification Bar */}
+      {isAddingCustom && (
+        <form onSubmit={handleSaveCustom} className="mt-3 flex items-center gap-2 bg-emerald-950/70 p-2 rounded-xl border border-emerald-600/40">
+          <input
+            type="text"
+            value={customCategoryName}
+            onChange={(e) => setCustomCategoryName(e.target.value)}
+            placeholder="Type category name (e.g. Gas Cylinder, Medical)..."
+            autoFocus
+            className="flex-1 bg-white/10 text-white placeholder-emerald-200/60 text-xs px-3 py-2 rounded-lg border border-white/15 focus:outline-none focus:border-emerald-400"
+          />
+          <button
+            type="submit"
+            className="bg-emerald-400 hover:bg-emerald-300 text-emerald-950 text-xs font-bold px-3.5 py-2 rounded-lg transition-colors shrink-0"
+          >
+            Save
+          </button>
+        </form>
+      )}
     </div>
   );
 };

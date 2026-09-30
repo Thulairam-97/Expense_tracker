@@ -33,12 +33,27 @@ class GenericUPINotificationParser extends BaseNotificationParser {
     final fullText = '$title $body'.trim();
     final lowerText = fullText.toLowerCase();
 
-    // 1. Never treat credits/deposits as expenses
-    if (lowerText.contains('credited') ||
-        lowerText.contains('deposited') ||
-        lowerText.contains('received') ||
-        lowerText.contains('salary') ||
-        lowerText.contains('refund received')) {
+    // 1. Never treat pure credits/deposits as expenses (unless 'debited' is also present, e.g. 'debited from X and credited to Y')
+    final hasExplicitDebit = lowerText.contains('debited') ||
+        lowerText.contains('paid') ||
+        lowerText.contains('sent') ||
+        lowerText.contains('spent') ||
+        lowerText.contains('trf to') ||
+        lowerText.contains('transferred');
+
+    final isCreditOnly = (lowerText.contains('credited') ||
+            lowerText.contains('deposited') ||
+            lowerText.contains('received') ||
+            lowerText.contains('salary') ||
+            lowerText.contains('refund received')) &&
+        !hasExplicitDebit;
+
+    final isIncomingMoney = lowerText.contains('credited to your') ||
+        lowerText.contains('credited in your') ||
+        lowerText.contains('received from') ||
+        lowerText.contains('sent you');
+
+    if (isCreditOnly || (isIncomingMoney && !lowerText.contains('debited from'))) {
       return ParsedTransaction(
         amount: extractAmount(fullText) ?? 0.0,
         merchant: 'Deposit',

@@ -69,13 +69,29 @@ class PaymentNotificationListenerService : NotificationListenerService() {
             val combinedText = "$title $text $bigText $subText".trim()
             val lowerText = combinedText.lowercase()
 
-            // 1. Filter: Reject non-payment / money received alerts
-            if (lowerText.contains("received") || 
-                lowerText.contains("credited") || 
-                lowerText.contains("deposited") ||
-                lowerText.contains("cashback received") ||
-                lowerText.contains("refund received") ||
-                lowerText.contains("salary")) {
+            // 1. Filter: Determine if this is a debit/payment vs pure credit/income
+            val hasExplicitDebit = lowerText.contains("debited") ||
+                    lowerText.contains("paid") ||
+                    lowerText.contains("sent") ||
+                    lowerText.contains("spent") ||
+                    lowerText.contains("trf to") ||
+                    lowerText.contains("transferred")
+
+            val isCreditOnly = (lowerText.contains("received") ||
+                    lowerText.contains("credited") ||
+                    lowerText.contains("deposited") ||
+                    lowerText.contains("cashback") ||
+                    lowerText.contains("refund received") ||
+                    lowerText.contains("salary")) && !hasExplicitDebit
+
+            // Also reject if the notification explicitly starts with or states money was received/credited to user
+            val isIncomingMoney = lowerText.contains("credited to your") ||
+                    lowerText.contains("credited in your") ||
+                    lowerText.contains("received from") ||
+                    lowerText.contains("sent you") ||
+                    lowerText.contains("paid you")
+
+            if (isCreditOnly || (isIncomingMoney && !lowerText.contains("debited from"))) {
                 Log.d(TAG, "Ignored credit/income notification: $combinedText")
                 return false
             }
@@ -206,7 +222,8 @@ class PaymentNotificationListenerService : NotificationListenerService() {
             val merchantPatterns = listOf(
                 Pattern.compile("(?:payment of|paid|sent|transferred)\\s+(?:₹|rs\\.?|inr)?\\s*[0-9\\.,]+\\s+to\\s+([^,\\.\n\r]+?)(?:\\s+was\\s+successful|\\s+is\\s+successful|\\.|\\,|$)", Pattern.CASE_INSENSITIVE),
                 Pattern.compile("(?:₹|rs\\.?|inr)?\\s*[0-9\\.,]+\\s+(?:sent|paid|transferred)\\s+to\\s+([^,\\.\n\r]+?)(?:\\s+was\\s+successful|\\s+is\\s+successful|\\.|\\,|$)", Pattern.CASE_INSENSITIVE),
-                Pattern.compile("(?:paid to|sent to|transferred to)\\s+([^,\\.\n\r]+?)(?:\\s+was|\\s+is|\\.|\\,|$)", Pattern.CASE_INSENSITIVE),
+                Pattern.compile("(?:paid to|sent to|transferred to|trf to|credited to)\\s+([^,\\.\n\r;]+?)(?:\\s+was|\\s+is|\\s+on|\\s+ref|\\s+upi|\\(|\\.|\\,|$)", Pattern.CASE_INSENSITIVE),
+                Pattern.compile(";\\s*([A-Za-z0-9\\s\\.\\-\\_]{2,30}?)\\s+credited", Pattern.CASE_INSENSITIVE),
                 Pattern.compile("to\\s+([^,\\.\n\r]+?)\\s+(?:was\\s+successful|is\\s+successful|successful)", Pattern.CASE_INSENSITIVE),
                 Pattern.compile("(?:money sent to)\\s+([^,\\.\n\r]+)", Pattern.CASE_INSENSITIVE),
                 Pattern.compile("(?:at|towards)\\s+([^,\\.\n\r]+?)(?:\\s+on|\\s+ref|\\s+via|\\s+using|\\.|\\,|$)", Pattern.CASE_INSENSITIVE),
@@ -411,17 +428,28 @@ class PaymentNotificationListenerService : NotificationListenerService() {
         if (sbn == null) return
 
         val packageName = sbn.packageName ?: return
+        if (packageName == applicationContext.packageName) {
+            return
+        }
 
         // Filter: Allow UPI apps, bank apps, OR SMS apps
         val isUpiOrBankApp = SUPPORTED_UPI_PACKAGES.contains(packageName) || 
                              packageName.contains("upi", ignoreCase = true) ||
                              packageName.contains("pay", ignoreCase = true) ||
                              packageName.contains("bank", ignoreCase = true) ||
-                             packageName.contains("wallet", ignoreCase = true)
+                             packageName.contains("wallet", ignoreCase = true) ||
+                             packageName.contains("sbi", ignoreCase = true) ||
+                             packageName.contains("hdfc", ignoreCase = true) ||
+                             packageName.contains("icici", ignoreCase = true) ||
+                             packageName.contains("axis", ignoreCase = true) ||
+                             packageName.contains("kotak", ignoreCase = true) ||
+                             packageName.contains("canara", ignoreCase = true)
 
         val isSmsApp = SMS_PACKAGES.contains(packageName) ||
                        packageName.contains("messaging", ignoreCase = true) ||
-                       packageName.contains("mms", ignoreCase = true)
+                       packageName.contains("message", ignoreCase = true) ||
+                       packageName.contains("mms", ignoreCase = true) ||
+                       packageName.contains("sms", ignoreCase = true)
 
         if (!isUpiOrBankApp && !isSmsApp) {
             return

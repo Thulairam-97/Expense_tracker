@@ -59,6 +59,12 @@ class PaymentNotificationListenerService : NotificationListenerService() {
         // Callback channel instance when Flutter engine is alive in foreground
         var notificationEventSink: ((Map<String, Any?>) -> Unit)? = null
 
+        @Volatile
+        var isServiceConnected: Boolean = false
+
+        @Volatile
+        var activeInstance: PaymentNotificationListenerService? = null
+
         /**
          * Global processor for an incoming notification payload (used by live service and test simulator)
          */
@@ -152,6 +158,9 @@ class PaymentNotificationListenerService : NotificationListenerService() {
                 referenceId = referenceId,
                 rawText = combinedText
             )
+            if (!isSaved) {
+                return false
+            }
 
             // 8. Trigger Actionable Android Notification with Category Buttons
             val notifId = (System.currentTimeMillis() % 100000).toInt()
@@ -520,13 +529,24 @@ class PaymentNotificationListenerService : NotificationListenerService() {
         }
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        super.onStartCommand(intent, flags, startId)
+        // Ensure Android OS restarts the listener service if killed while unplugged from USB
+        return START_STICKY
+    }
+
     override fun onListenerConnected() {
         super.onListenerConnected()
+        isServiceConnected = true
+        activeInstance = this
         Log.i(TAG, "PaymentNotificationListenerService connected and active")
+        scanActiveNotificationsNow()
     }
 
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
+        isServiceConnected = false
+        activeInstance = null
         Log.w(TAG, "PaymentNotificationListenerService disconnected, requesting rebind...")
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -537,35 +557,38 @@ class PaymentNotificationListenerService : NotificationListenerService() {
         }
     }
 
+    /**
+     * Scans any notifications currently active in the status bar in case a payment arrived
+     * while Android had temporarily paused the background service when unplugged from USB.
+     */
+    fun scanActiveNotificationsNow() {
+        try {
+            val currentList = activeNotifications ?: return
+            for (sbn in currentList) {
+                handleStatusBarNotification(sbn)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error scanning active notifications", e)
+        }
+    }
+
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         super.onNotificationPosted(sbn)
+        handleStatusBarNotification(sbn)
+    }
+
+    private fun handleStatusBarNotification(sbn: StatusBarNotification?) {
         if (sbn == null) return
 
         val packageName = sbn.packageName ?: return
-        if (packageName == applicationContext.packageName) {
-            return
-        }
-
-        // Filter: Allow UPI apps, bank apps, OR SMS apps
-        val isUpiOrBankApp = SUPPORTED_UPI_PACKAGES.contains(packageName) || 
-                             packageName.contains("upi", ignoreCase = true) ||
-                             packageName.contains("pay", ignoreCase = true) ||
-                             packageName.contains("bank", ignoreCase = true) ||
-                             packageName.contains("wallet", ignoreCase = true) ||
-                             packageName.contains("sbi", ignoreCase = true) ||
-                             packageName.contains("hdfc", ignoreCase = true) ||
-                             packageName.contains("icici", ignoreCase = true) ||
-                             packageName.contains("axis", ignoreCase = true) ||
-                             packageName.contains("kotak", ignoreCase = true) ||
-                             packageName.contains("canara", ignoreCase = true)
-
-        val isSmsApp = SMS_PACKAGES.contains(packageName) ||
-                       packageName.contains("messaging", ignoreCase = true) ||
-                       packageName.contains("message", ignoreCase = true) ||
-                       packageName.contains("mms", ignoreCase = true) ||
-                       packageName.contains("sms", ignoreCase = true)
-
-        if (!isUpiOrBankApp && !isSmsApp) {
+        // Ignore notifications posted by our own app or system UI / media players
+        if (packageName == applicationContext.packageName ||
+            packageName == "android" ||
+            packageName == "com.android.systemui" ||
+            packageName.contains("providers.downloads", ignoreCase = true) ||
+            packageName.contains("music", ignoreCase = true) ||
+            packageName.contains("spotify", ignoreCase = true) ||
+            packageName.contains("youtube", ignoreCase = true)) {
             return
         }
 
@@ -578,25 +601,43 @@ class PaymentNotificationListenerService : NotificationListenerService() {
         val subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString() ?: ""
         val ticker = notification.tickerText?.toString() ?: ""
 
-        val combined = "$title $text $bigText $subText $ticker".trim()
-
-        // For SMS apps, only process if the message contains financial transaction indicators
-        if (isSmsApp) {
-            val lower = combined.lowercase()
-            val hasMoneyTerms = lower.contains("debited") || 
-                                lower.contains("paid") || 
-                                lower.contains("sent") ||
-                                lower.contains("spent") ||
-                                lower.contains("trf") ||
-                                lower.contains("transfer") ||
-                                lower.contains("upi") || 
-                                lower.contains("vpa") || 
-                                lower.contains("inr") || 
-                                lower.contains("rs") ||
-                                lower.contains("₹")
-            if (!hasMoneyTerms) {
-                return
+        // Extract grouped SMS / MessagingStyle lines (used by Google Messages & Samsung Messages when >1 SMS from same bank exists)
+        val extraLinesBuilder = StringBuilder()
+        try {
+            val textLines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
+            if (textLines != null && textLines.isNotEmpty()) {
+                // Take the latest line
+                extraLinesBuilder.append(" ").append(textLines.last().toString())
             }
+            @Suppress("DEPRECATION")
+            val messages = extras.getParcelableArray(Notification.EXTRA_MESSAGES)
+            if (messages != null && messages.isNotEmpty()) {
+                val lastMsgBundle = messages.last() as? Bundle
+                val msgText = lastMsgBundle?.getCharSequence("text")?.toString()
+                if (!msgText.isNullOrEmpty()) {
+                    extraLinesBuilder.append(" ").append(msgText)
+                }
+            }
+        } catch (_: Exception) {}
+
+        val mergedBigText = "$bigText $extraLinesBuilder".trim()
+        val combined = "$title $text $mergedBigText $subText $ticker".trim()
+        val lower = combined.lowercase()
+
+        // Fast pre-check: must contain financial transaction terms
+        val hasMoneyTerms = lower.contains("debited") || 
+                            lower.contains("paid") || 
+                            lower.contains("sent") ||
+                            lower.contains("spent") ||
+                            lower.contains("trf") ||
+                            lower.contains("transfer") ||
+                            lower.contains("upi") || 
+                            lower.contains("vpa") || 
+                            lower.contains("inr") || 
+                            lower.contains("rs") ||
+                            lower.contains("₹")
+        if (!hasMoneyTerms) {
+            return
         }
 
         val postTime = if (sbn.postTime > 0) sbn.postTime else System.currentTimeMillis()
@@ -607,7 +648,7 @@ class PaymentNotificationListenerService : NotificationListenerService() {
             packageName = packageName,
             title = title,
             text = text,
-            bigText = bigText,
+            bigText = mergedBigText,
             subText = subText,
             postTime = postTime
         )

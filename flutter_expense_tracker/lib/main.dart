@@ -225,7 +225,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         'amount': 1.0,
         'merchant': 'Rahul (Friend)',
         'source': 'phonepe',
-        'rawText': 'Paid ₹1 to Rahul. Txn ID: T24091812345',
+        'rawText': 'Paid ₹1 to Rahul. Txn ID: T${DateTime.now().millisecondsSinceEpoch}',
       });
       if (success == true) {
         await _loadInitialData();

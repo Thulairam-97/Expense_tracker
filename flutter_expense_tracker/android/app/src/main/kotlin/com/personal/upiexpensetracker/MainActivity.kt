@@ -8,7 +8,6 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.PowerManager
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import androidx.annotation.NonNull
@@ -32,68 +31,13 @@ class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         checkAndRequestPostNotificationPermission()
-        ensureNotificationListenerRebound(forceToggleIfDead = true)
-        requestBatteryOptimizationExemptionIfNeeded()
-    }
-
-    override fun onResume() {
-        super.onResume()
-        ensureNotificationListenerRebound(forceToggleIfDead = true)
-    }
-
-    /**
-     * Fixes Android's cached dead-binder issue when installing an updated APK or unplugging USB.
-     * If Notification Access is granted in Settings but the service is not actively bound,
-     * toggling the component DISABLED -> ENABLED forces Android's NotificationManagerService to rebind immediately.
-     */
-    private fun ensureNotificationListenerRebound(forceToggleIfDead: Boolean = false) {
         try {
-            if (!isNotificationAccessGranted()) return
-
-            val cn = ComponentName(this, PaymentNotificationListenerService::class.java)
-
-            if (!PaymentNotificationListenerService.isServiceConnected && forceToggleIfDead) {
-                packageManager.setComponentEnabledSetting(
-                    cn,
-                    PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                    PackageManager.DONT_KILL_APP
-                )
-                packageManager.setComponentEnabledSetting(
-                    cn,
-                    PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
-                    PackageManager.DONT_KILL_APP
+            if (isNotificationAccessGranted() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                NotificationListenerService.requestRebind(
+                    ComponentName(this, PaymentNotificationListenerService::class.java)
                 )
             }
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                NotificationListenerService.requestRebind(cn)
-            }
-
-            // Also scan any active notifications currently in the status bar
-            PaymentNotificationListenerService.activeInstance?.scanActiveNotificationsNow()
-        } catch (e: Exception) {
-            // Safe ignore
-        }
-    }
-
-    /**
-     * When unplugged from laptop USB, Android OEM battery savers can kill background listeners
-     * while heavy apps like PhonePe/GPay are open. Requesting battery optimization exemption prevents this.
-     */
-    private fun requestBatteryOptimizationExemptionIfNeeded() {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && isNotificationAccessGranted()) {
-                val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-                if (!pm.isIgnoringBatteryOptimizations(packageName)) {
-                    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                        data = Uri.parse("package:$packageName")
-                    }
-                    startActivity(intent)
-                }
-            }
-        } catch (e: Exception) {
-            // Safe ignore if device does not support direct intent
-        }
+        } catch (_: Exception) {}
     }
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {

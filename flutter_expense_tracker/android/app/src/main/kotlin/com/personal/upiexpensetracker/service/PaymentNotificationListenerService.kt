@@ -80,52 +80,32 @@ class PaymentNotificationListenerService : NotificationListenerService() {
             val combinedText = "$title $text $bigText $subText".trim()
             val lowerText = combinedText.lowercase()
 
-            // 1. Filter: Determine if this is a debit/payment vs pure credit/income
-            val hasExplicitDebit = lowerText.contains("debited") ||
-                    lowerText.contains("paid") ||
-                    lowerText.contains("sent") ||
-                    lowerText.contains("spent") ||
-                    lowerText.contains("trf to") ||
-                    lowerText.contains("transferred")
-
-            val isCreditOnly = (lowerText.contains("received") ||
-                    lowerText.contains("credited") ||
-                    lowerText.contains("deposited") ||
-                    lowerText.contains("cashback") ||
-                    lowerText.contains("refund received") ||
-                    lowerText.contains("salary")) && !hasExplicitDebit
-
-            // Also reject if the notification explicitly starts with or states money was received/credited to user
-            val isIncomingMoney = lowerText.contains("credited to your") ||
-                    lowerText.contains("credited in your") ||
-                    lowerText.contains("received from") ||
-                    lowerText.contains("sent you") ||
-                    lowerText.contains("paid you")
-
-            if (isCreditOnly || (isIncomingMoney && !hasExplicitDebit)) {
-                Log.d(TAG, "Ignored credit/income notification: $combinedText")
-                return false
-            }
-
-            // Reject failed or declined transactions
+            // 1. Reject failed, declined, or OTP-only notifications
             if (lowerText.contains("failed") || 
                 lowerText.contains("declined") || 
                 lowerText.contains("insufficient balance") ||
-                lowerText.contains("unable to process")) {
-                Log.d(TAG, "Ignored failed transaction notification: $combinedText")
+                lowerText.contains("unable to process") ||
+                lowerText.contains("one time password") ||
+                (lowerText.contains("otp") && !lowerText.contains("debited") && !lowerText.contains("paid"))) {
+                Log.d(TAG, "Ignored failed/OTP notification: $combinedText")
                 return false
             }
 
-            // 2. Filter: Must contain payment/debit intent
+            // 2. Filter: Must contain transaction/payment indicator
             val hasPaymentKeywords = lowerText.contains("paid") ||
                     lowerText.contains("debited") ||
                     lowerText.contains("sent") ||
                     lowerText.contains("transfer") ||
                     lowerText.contains("transferred") ||
+                    lowerText.contains("trf") ||
                     lowerText.contains("spent") ||
                     lowerText.contains("payment") ||
                     lowerText.contains("vpa") ||
-                    lowerText.contains("upi")
+                    lowerText.contains("upi") ||
+                    lowerText.contains("credited") ||
+                    lowerText.contains("received") ||
+                    lowerText.contains("a/c") ||
+                    lowerText.contains("acct")
 
             if (!hasPaymentKeywords) {
                 Log.d(TAG, "No payment keywords found: $combinedText")
@@ -162,7 +142,7 @@ class PaymentNotificationListenerService : NotificationListenerService() {
                 return false
             }
 
-            // 8. Trigger Actionable Android Notification with Category Buttons
+            // 8. Trigger Actionable Android Notification with Category & Description Buttons
             val notifId = (System.currentTimeMillis() % 100000).toInt()
             showActionableCategoryNotification(
                 context = context,
@@ -270,7 +250,7 @@ class PaymentNotificationListenerService : NotificationListenerService() {
 
         private fun extractReferenceId(text: String): String? {
             val refRegex = Pattern.compile(
-                "(?:txn|reference|rrn|utr|upi ref)\\s*(?:id|no\\.?)?[:\\s#]*([A-Za-z0-9]{8,22})",
+                "(?:txn\\s*id|reference\\s*id|rrn|utr|upi\\s*ref(?:\\s*no\\.?)?)[:\\s#\\-]*([A-Za-z0-9]*\\d{4,}[A-Za-z0-9]*)",
                 Pattern.CASE_INSENSITIVE
             )
             val matcher = refRegex.matcher(text)
@@ -303,23 +283,18 @@ class PaymentNotificationListenerService : NotificationListenerService() {
                 val existingJson = prefs.getString(KEY_EXPENSES, "[]") ?: "[]"
                 val jsonArray = JSONArray(existingJson)
 
-                // Check for duplicate within last 90 seconds
-                for (i in 0 until jsonArray.length()) {
+                val now = System.currentTimeMillis()
+                // Only block if the exact same notification burst arrived within the last 2.5 seconds
+                for (i in 0 until Math.min(jsonArray.length(), 5)) {
                     val obj = jsonArray.getJSONObject(i)
-                    val existingRef = obj.optString("referenceId", "")
                     val existingAmount = obj.optDouble("amount", 0.0)
-                    val existingTime = obj.optLong("timestamp", 0L)
-                    val existingMerchant = obj.optString("merchant", "")
-
-                    if (referenceId != null && referenceId.isNotEmpty() && referenceId == existingRef) {
-                        Log.w(TAG, "Duplicate blocked by referenceId: $referenceId")
-                        return false
-                    }
+                    val existingCreatedAt = obj.optLong("createdAt", 0L)
+                    val existingRaw = obj.optString("rawNotificationText", "")
 
                     if (Math.abs(existingAmount - amount) < 0.01 &&
-                        Math.abs(existingTime - timestamp) < 10000 &&
-                        existingMerchant.equals(merchant, ignoreCase = true)) {
-                        Log.w(TAG, "Duplicate blocked by amount & time window: ₹$amount to $merchant")
+                        Math.abs(now - existingCreatedAt) < 2500 &&
+                        existingRaw == rawText) {
+                        Log.w(TAG, "Duplicate notification burst ignored within 2.5s")
                         return false
                     }
                 }
@@ -450,6 +425,7 @@ class PaymentNotificationListenerService : NotificationListenerService() {
                     .build()
 
                 val customCatIntent = Intent(context, NotificationActionReceiver::class.java).apply {
+                    component = ComponentName(context, NotificationActionReceiver::class.java)
                     action = NotificationActionReceiver.ACTION_ADD_CUSTOM_CATEGORY
                     setPackage(context.packageName)
                     putExtra(NotificationActionReceiver.EXTRA_TRANSACTION_ID, transactionId)
@@ -481,6 +457,7 @@ class PaymentNotificationListenerService : NotificationListenerService() {
                     .build()
 
                 val descriptionIntent = Intent(context, NotificationActionReceiver::class.java).apply {
+                    component = ComponentName(context, NotificationActionReceiver::class.java)
                     action = NotificationActionReceiver.ACTION_ADD_DESCRIPTION
                     setPackage(context.packageName)
                     putExtra(NotificationActionReceiver.EXTRA_TRANSACTION_ID, transactionId)
@@ -514,17 +491,24 @@ class PaymentNotificationListenerService : NotificationListenerService() {
                 } else {
                     builder.addAction(android.R.drawable.ic_menu_compass, "🍔 Food", createCategoryActionPendingIntent("cat_food"))
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Fallback to standard category actions", e)
-                builder.addAction(android.R.drawable.ic_menu_compass, "🍔 Food", createCategoryActionPendingIntent("cat_food"))
-                builder.addAction(android.R.drawable.ic_menu_add, "🛒 Grocery", createCategoryActionPendingIntent("cat_groceries"))
-                builder.addAction(android.R.drawable.ic_menu_directions, "⛽ Fuel", createCategoryActionPendingIntent("cat_fuel"))
-            }
-
-            try {
                 notificationManager.notify(notificationId, builder.build())
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to post actionable notification", e)
+                Log.e(TAG, "RemoteInput notify failed, posting fallback notification", e)
+                try {
+                    val fallbackBuilder = NotificationCompat.Builder(context, CHANNEL_ID)
+                        .setSmallIcon(android.R.drawable.ic_dialog_info)
+                        .setContentTitle("₹$amountFormatted paid to $merchant")
+                        .setContentText(subtitleText)
+                        .setPriority(NotificationCompat.PRIORITY_HIGH)
+                        .setAutoCancel(true)
+                        .setContentIntent(contentPendingIntent)
+                        .addAction(android.R.drawable.ic_menu_compass, "🍔 Food", createCategoryActionPendingIntent("cat_food"))
+                        .addAction(android.R.drawable.ic_menu_add, "🛒 Grocery", createCategoryActionPendingIntent("cat_groceries"))
+                        .addAction(android.R.drawable.ic_menu_directions, "⛽ Fuel", createCategoryActionPendingIntent("cat_fuel"))
+                    notificationManager.notify(notificationId, fallbackBuilder.build())
+                } catch (e2: Exception) {
+                    Log.e(TAG, "Failed to post fallback notification", e2)
+                }
             }
         }
     }

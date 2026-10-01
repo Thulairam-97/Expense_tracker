@@ -60,12 +60,14 @@
             </intent-filter>
         </service>
 
-        <!-- Broadcast Receiver for actionable notification button taps (Category Quick-Select) -->
+        <!-- Broadcast Receiver for actionable notification button taps & inline RemoteInput (Category & Description) -->
         <receiver
             android:name="com.personal.upiexpensetracker.service.NotificationActionReceiver"
-            android:exported="false">
+            android:exported="true">
             <intent-filter>
                 <action android:name="com.personal.upiexpensetracker.ACTION_RECORD_CATEGORY" />
+                <action android:name="com.personal.upiexpensetracker.ACTION_ADD_CUSTOM_CATEGORY" />
+                <action android:name="com.personal.upiexpensetracker.ACTION_ADD_DESCRIPTION" />
                 <action android:name="com.personal.upiexpensetracker.ACTION_DISMISS_NOTIFICATION" />
             </intent-filter>
         </receiver>

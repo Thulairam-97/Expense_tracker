@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Bell, Check, X, Plus } from 'lucide-react';
+import { Bell, Check, X, Plus, FileText } from 'lucide-react';
 import { Category, PaymentSource } from '../types';
 
 interface ActionableNotificationBarProps {
@@ -15,6 +15,7 @@ interface ActionableNotificationBarProps {
   categories: Category[];
   onSelectCategory: (categoryId: string) => void;
   onAddCustomCategory?: (categoryName: string) => void;
+  onAddDescription?: (description: string) => void;
   onDismiss: () => void;
 }
 
@@ -23,17 +24,19 @@ export const ActionableNotificationBar: React.FC<ActionableNotificationBarProps>
   categories,
   onSelectCategory,
   onAddCustomCategory,
+  onAddDescription,
   onDismiss,
 }) => {
-  const [isAddingCustom, setIsAddingCustom] = useState(false);
+  const [activeInputMode, setActiveInputMode] = useState<'none' | 'category' | 'description'>('none');
   const [customCategoryName, setCustomCategoryName] = useState('');
+  const [descriptionText, setDescriptionText] = useState('');
 
   if (!notification) return null;
 
-  // Quick top 4 categories
-  const quickCategories = categories.slice(0, 4);
+  // Quick top 3 categories
+  const quickCategories = categories.slice(0, 3);
 
-  const handleSaveCustom = (e: React.FormEvent) => {
+  const handleSaveCustomCategory = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = customCategoryName.trim();
     if (!trimmed) return;
@@ -41,7 +44,18 @@ export const ActionableNotificationBar: React.FC<ActionableNotificationBarProps>
       onAddCustomCategory(trimmed);
     }
     setCustomCategoryName('');
-    setIsAddingCustom(false);
+    setActiveInputMode('none');
+  };
+
+  const handleSaveDescription = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = descriptionText.trim();
+    if (!trimmed) return;
+    if (onAddDescription) {
+      onAddDescription(trimmed);
+    }
+    setDescriptionText('');
+    setActiveInputMode('none');
   };
 
   return (
@@ -77,7 +91,7 @@ export const ActionableNotificationBar: React.FC<ActionableNotificationBarProps>
       </div>
 
       <p className="text-xs text-emerald-100/80 mb-2.5 font-medium">
-        Select category or tap <span className="font-bold text-white">+</span> to type a new category directly in the notification bar:
+        Select a category, or tap <span className="font-bold text-white">+ Category</span> / <span className="font-bold text-white">+ Description</span> to type right inside the notification bar:
       </p>
 
       {/* Actionable buttons */}
@@ -100,12 +114,12 @@ export const ActionableNotificationBar: React.FC<ActionableNotificationBarProps>
           );
         })}
 
-        {/* + Button to open inline input field right inside the notification bar */}
+        {/* + Category Button */}
         <button
           type="button"
-          onClick={() => setIsAddingCustom((prev) => !prev)}
+          onClick={() => setActiveInputMode((prev) => (prev === 'category' ? 'none' : 'category'))}
           className={`text-xs px-2.5 py-1.5 rounded-lg font-bold flex items-center gap-1 transition-all border ${
-            isAddingCustom
+            activeInputMode === 'category'
               ? 'bg-white text-teal-950 border-white shadow-sm'
               : 'bg-emerald-500/30 hover:bg-emerald-500/40 text-emerald-100 border-emerald-400/40'
           }`}
@@ -114,16 +128,51 @@ export const ActionableNotificationBar: React.FC<ActionableNotificationBarProps>
           <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
           <span>Category</span>
         </button>
+
+        {/* + Description Button */}
+        <button
+          type="button"
+          onClick={() => setActiveInputMode((prev) => (prev === 'description' ? 'none' : 'description'))}
+          className={`text-xs px-2.5 py-1.5 rounded-lg font-bold flex items-center gap-1 transition-all border ${
+            activeInputMode === 'description'
+              ? 'bg-white text-teal-950 border-white shadow-sm'
+              : 'bg-emerald-500/30 hover:bg-emerald-500/40 text-emerald-100 border-emerald-400/40'
+          }`}
+          title="Add description in notification bar"
+        >
+          <FileText className="w-3.5 h-3.5 stroke-[2.2]" />
+          <span>+ Description</span>
+        </button>
       </div>
 
-      {/* Inline RemoteInput Field inside Notification Bar */}
-      {isAddingCustom && (
-        <form onSubmit={handleSaveCustom} className="mt-3 flex items-center gap-2 bg-emerald-950/70 p-2 rounded-xl border border-emerald-600/40">
+      {/* Inline RemoteInput Field for Category inside Notification Bar */}
+      {activeInputMode === 'category' && (
+        <form onSubmit={handleSaveCustomCategory} className="mt-3 flex items-center gap-2 bg-emerald-950/70 p-2 rounded-xl border border-emerald-600/40">
           <input
             type="text"
             value={customCategoryName}
             onChange={(e) => setCustomCategoryName(e.target.value)}
             placeholder="Type category name (e.g. Gas Cylinder, Medical)..."
+            autoFocus
+            className="flex-1 bg-white/10 text-white placeholder-emerald-200/60 text-xs px-3 py-2 rounded-lg border border-white/15 focus:outline-none focus:border-emerald-400"
+          />
+          <button
+            type="submit"
+            className="bg-emerald-400 hover:bg-emerald-300 text-emerald-950 text-xs font-bold px-3.5 py-2 rounded-lg transition-colors shrink-0"
+          >
+            Save
+          </button>
+        </form>
+      )}
+
+      {/* Inline RemoteInput Field for Description inside Notification Bar */}
+      {activeInputMode === 'description' && (
+        <form onSubmit={handleSaveDescription} className="mt-3 flex items-center gap-2 bg-emerald-950/70 p-2 rounded-xl border border-emerald-600/40">
+          <input
+            type="text"
+            value={descriptionText}
+            onChange={(e) => setDescriptionText(e.target.value)}
+            placeholder="Type description / note (e.g. Ordered LPG cylinder refill)..."
             autoFocus
             className="flex-1 bg-white/10 text-white placeholder-emerald-200/60 text-xs px-3 py-2 rounded-lg border border-white/15 focus:outline-none focus:border-emerald-400"
           />

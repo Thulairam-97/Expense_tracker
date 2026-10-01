@@ -329,7 +329,7 @@ export default function App() {
       const newCategory: Category = {
         id: targetCatId,
         name: cleanName,
-        iconName: 'Tag',
+        icon: 'Tag',
         color: '#0D9488',
         isDefault: false,
       };
@@ -346,6 +346,25 @@ export default function App() {
     setSimulationBanner({
       type: 'success',
       message: `✅ Dynamic category "${cleanName}" created & saved from Notification Bar!`,
+    });
+    setTimeout(() => setSimulationBanner(null), 4000);
+  };
+
+  // Add description/note directly from Notification Bar (+ Description button)
+  const handleAddDescriptionFromNotification = (rawDescription: string) => {
+    if (!pendingNotification) return;
+    const cleanDesc = rawDescription.trim();
+    if (!cleanDesc) return;
+
+    setExpenses((prev) =>
+      prev.map((exp) =>
+        exp.id === pendingNotification.id ? { ...exp, notes: cleanDesc } : exp
+      )
+    );
+
+    setSimulationBanner({
+      type: 'success',
+      message: `✅ Description "${cleanDesc}" saved from Notification Bar!`,
     });
     setTimeout(() => setSimulationBanner(null), 4000);
   };
@@ -646,6 +665,7 @@ export default function App() {
                     categories={categories}
                     onSelectCategory={handleAssignCategory}
                     onAddCustomCategory={handleAddCustomCategoryFromNotification}
+                    onAddDescription={handleAddDescriptionFromNotification}
                     onDismiss={() => setPendingNotification(null)}
                   />
 
@@ -808,6 +828,11 @@ export default function App() {
                                   </>
                                 )}
                               </div>
+                              {exp.notes && (
+                                <div className="text-[11px] font-semibold text-teal-700 mt-0.5">
+                                  📝 {exp.notes}
+                                </div>
+                              )}
                             </div>
                           </div>
 

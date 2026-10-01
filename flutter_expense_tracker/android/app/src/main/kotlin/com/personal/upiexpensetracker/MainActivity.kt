@@ -1,6 +1,7 @@
 package com.personal.upiexpensetracker
 
 import android.Manifest
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -8,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.service.notification.NotificationListenerService
 import androidx.annotation.NonNull
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationManagerCompat
@@ -29,6 +31,24 @@ class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         checkAndRequestPostNotificationPermission()
+        ensureNotificationListenerRebound()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        ensureNotificationListenerRebound()
+    }
+
+    private fun ensureNotificationListenerRebound() {
+        try {
+            if (isNotificationAccessGranted() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                NotificationListenerService.requestRebind(
+                    ComponentName(this, PaymentNotificationListenerService::class.java)
+                )
+            }
+        } catch (e: Exception) {
+            // Safe ignore
+        }
     }
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
@@ -40,6 +60,9 @@ class MainActivity : FlutterActivity() {
                 when (call.method) {
                     "isNotificationPermissionGranted" -> {
                         val isGranted = isNotificationAccessGranted()
+                        if (isGranted) {
+                            ensureNotificationListenerRebound()
+                        }
                         result.success(isGranted)
                     }
                     "isPostNotificationGranted" -> {

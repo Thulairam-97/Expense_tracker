@@ -4,6 +4,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -27,6 +28,7 @@ class PaymentNotificationListenerService : NotificationListenerService() {
         const val KEY_EXPENSES = "persisted_user_expenses_v1"
         const val KEY_CUSTOM_CATEGORIES = "persisted_custom_categories_v1"
         const val KEY_REMOTE_INPUT_CATEGORY = "key_custom_category_input"
+        const val KEY_REMOTE_INPUT_DESCRIPTION = "key_expense_description_input"
 
         // Known UPI and banking package identifiers
         val SUPPORTED_UPI_PACKAGES = setOf(
@@ -94,7 +96,7 @@ class PaymentNotificationListenerService : NotificationListenerService() {
                     lowerText.contains("sent you") ||
                     lowerText.contains("paid you")
 
-            if (isCreditOnly || (isIncomingMoney && !lowerText.contains("debited from"))) {
+            if (isCreditOnly || (isIncomingMoney && !hasExplicitDebit)) {
                 Log.d(TAG, "Ignored credit/income notification: $combinedText")
                 return false
             }
@@ -306,7 +308,7 @@ class PaymentNotificationListenerService : NotificationListenerService() {
                     }
 
                     if (Math.abs(existingAmount - amount) < 0.01 &&
-                        Math.abs(existingTime - timestamp) < 90000 &&
+                        Math.abs(existingTime - timestamp) < 10000 &&
                         existingMerchant.equals(merchant, ignoreCase = true)) {
                         Log.w(TAG, "Duplicate blocked by amount & time window: ₹$amount to $merchant")
                         return false
@@ -323,7 +325,7 @@ class PaymentNotificationListenerService : NotificationListenerService() {
                     put("status", "success")
                     if (referenceId != null) put("referenceId", referenceId)
                     put("rawNotificationText", rawText)
-                    put("notes", "Auto-recorded from $paymentSource")
+                    put("notes", "")
                     put("createdAt", System.currentTimeMillis())
                 }
 
@@ -349,7 +351,9 @@ class PaymentNotificationListenerService : NotificationListenerService() {
             merchant: String,
             transactionId: String,
             notificationId: Int,
-            sourceName: String
+            sourceName: String,
+            statusSubtitle: String? = null,
+            showDoneButton: Boolean = false
         ) {
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
@@ -360,7 +364,7 @@ class PaymentNotificationListenerService : NotificationListenerService() {
                     "UPI Expense Categorization",
                     NotificationManager.IMPORTANCE_HIGH
                 ).apply {
-                    description = "Actionable notifications to quick-categorize UPI payments"
+                    description = "Actionable notifications to quick-categorize and add description to UPI payments"
                     enableVibration(true)
                 }
                 notificationManager.createNotificationChannel(channel)
@@ -373,7 +377,7 @@ class PaymentNotificationListenerService : NotificationListenerService() {
             }
             val contentPendingIntent = PendingIntent.getActivity(
                 context,
-                notificationId,
+                notificationId and 0x7FFFFFFF,
                 contentIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
@@ -382,64 +386,131 @@ class PaymentNotificationListenerService : NotificationListenerService() {
             fun createCategoryActionPendingIntent(catId: String): PendingIntent {
                 val intent = Intent(context, NotificationActionReceiver::class.java).apply {
                     action = NotificationActionReceiver.ACTION_RECORD_CATEGORY
+                    setPackage(context.packageName)
                     putExtra(NotificationActionReceiver.EXTRA_TRANSACTION_ID, transactionId)
                     putExtra(NotificationActionReceiver.EXTRA_CATEGORY_ID, catId)
                     putExtra(NotificationActionReceiver.EXTRA_NOTIFICATION_ID, notificationId)
                 }
                 return PendingIntent.getBroadcast(
                     context,
-                    (transactionId + catId).hashCode(),
+                    ((transactionId + catId).hashCode() and 0x7FFFFFFF),
+                    intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            }
+
+            fun createDismissPendingIntent(): PendingIntent {
+                val intent = Intent(context, NotificationActionReceiver::class.java).apply {
+                    action = NotificationActionReceiver.ACTION_DISMISS
+                    setPackage(context.packageName)
+                    putExtra(NotificationActionReceiver.EXTRA_NOTIFICATION_ID, notificationId)
+                }
+                return PendingIntent.getBroadcast(
+                    context,
+                    ((transactionId + "_dismiss").hashCode() and 0x7FFFFFFF),
                     intent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
             }
 
             val amountFormatted = if (amount % 1.0 == 0.0) amount.toInt().toString() else String.format("%.2f", amount)
-
-            // Build inline RemoteInput action for "+ Category" right inside the notification bar
-            val remoteInput = RemoteInput.Builder(KEY_REMOTE_INPUT_CATEGORY)
-                .setLabel("Type new category name & tap Save...")
-                .build()
-
-            val customCatIntent = Intent(context, NotificationActionReceiver::class.java).apply {
-                action = NotificationActionReceiver.ACTION_ADD_CUSTOM_CATEGORY
-                putExtra(NotificationActionReceiver.EXTRA_TRANSACTION_ID, transactionId)
-                putExtra(NotificationActionReceiver.EXTRA_NOTIFICATION_ID, notificationId)
-            }
-
-            // Android 12+ (API 31+) requires FLAG_MUTABLE for PendingIntents attached to RemoteInput
-            val mutableFlags = if (Build.VERSION.SDK_INT >= 31) {
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
-            } else {
-                PendingIntent.FLAG_UPDATE_CURRENT
-            }
-
-            val customCatPendingIntent = PendingIntent.getBroadcast(
-                context,
-                (transactionId + "_custom_cat").hashCode(),
-                customCatIntent,
-                mutableFlags
-            )
-
-            val customCategoryAction = NotificationCompat.Action.Builder(
-                android.R.drawable.ic_input_add,
-                "➕ Category",
-                customCatPendingIntent
-            )
-                .addRemoteInput(remoteInput)
-                .setAllowGeneratedReplies(false)
-                .build()
+            val subtitleText = statusSubtitle
+                ?: "Auto-recorded ($sourceName) • Tap ➕ Category or 📝 Description:"
 
             val builder = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setContentTitle("₹$amountFormatted paid to $merchant")
-                .setContentText("Auto-recorded ($sourceName) • Tap category or ➕ to type:")
+                .setContentText(subtitleText)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(subtitleText))
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setAutoCancel(true)
+                .setOnlyAlertOnce(statusSubtitle != null)
                 .setContentIntent(contentPendingIntent)
-                .addAction(android.R.drawable.ic_menu_compass, "🍔 Food", createCategoryActionPendingIntent("cat_food"))
-                .addAction(android.R.drawable.ic_menu_add, "🛒 Grocery", createCategoryActionPendingIntent("cat_groceries"))
-                .addAction(customCategoryAction)
+
+            try {
+                // Android 12+ (API 31+) requires FLAG_MUTABLE for PendingIntents attached to RemoteInput
+                val mutableFlags = if (Build.VERSION.SDK_INT >= 31) {
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+                } else {
+                    PendingIntent.FLAG_UPDATE_CURRENT
+                }
+
+                // 1. Inline RemoteInput action for "➕ Category"
+                val categoryRemoteInput = RemoteInput.Builder(KEY_REMOTE_INPUT_CATEGORY)
+                    .setLabel("Type category name & tap Save...")
+                    .build()
+
+                val customCatIntent = Intent(context, NotificationActionReceiver::class.java).apply {
+                    action = NotificationActionReceiver.ACTION_ADD_CUSTOM_CATEGORY
+                    setPackage(context.packageName)
+                    putExtra(NotificationActionReceiver.EXTRA_TRANSACTION_ID, transactionId)
+                    putExtra(NotificationActionReceiver.EXTRA_NOTIFICATION_ID, notificationId)
+                    putExtra("amount", amount)
+                    putExtra("merchant", merchant)
+                    putExtra("sourceName", sourceName)
+                }
+
+                val customCatPendingIntent = PendingIntent.getBroadcast(
+                    context,
+                    ((transactionId + "_custom_cat").hashCode() and 0x7FFFFFFF),
+                    customCatIntent,
+                    mutableFlags
+                )
+
+                val customCategoryAction = NotificationCompat.Action.Builder(
+                    android.R.drawable.ic_input_add,
+                    "➕ Category",
+                    customCatPendingIntent
+                )
+                    .addRemoteInput(categoryRemoteInput)
+                    .setAllowGeneratedReplies(false)
+                    .build()
+
+                // 2. Inline RemoteInput action for "📝 Description"
+                val descriptionRemoteInput = RemoteInput.Builder(KEY_REMOTE_INPUT_DESCRIPTION)
+                    .setLabel("Type description / note & tap Save...")
+                    .build()
+
+                val descriptionIntent = Intent(context, NotificationActionReceiver::class.java).apply {
+                    action = NotificationActionReceiver.ACTION_ADD_DESCRIPTION
+                    setPackage(context.packageName)
+                    putExtra(NotificationActionReceiver.EXTRA_TRANSACTION_ID, transactionId)
+                    putExtra(NotificationActionReceiver.EXTRA_NOTIFICATION_ID, notificationId)
+                    putExtra("amount", amount)
+                    putExtra("merchant", merchant)
+                    putExtra("sourceName", sourceName)
+                }
+
+                val descriptionPendingIntent = PendingIntent.getBroadcast(
+                    context,
+                    ((transactionId + "_desc").hashCode() and 0x7FFFFFFF),
+                    descriptionIntent,
+                    mutableFlags
+                )
+
+                val descriptionAction = NotificationCompat.Action.Builder(
+                    android.R.drawable.ic_menu_edit,
+                    "📝 Description",
+                    descriptionPendingIntent
+                )
+                    .addRemoteInput(descriptionRemoteInput)
+                    .setAllowGeneratedReplies(false)
+                    .build()
+
+                // Add 3 actions (Android max per notification)
+                builder.addAction(customCategoryAction)
+                builder.addAction(descriptionAction)
+                if (showDoneButton) {
+                    builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, "✓ Done", createDismissPendingIntent())
+                } else {
+                    builder.addAction(android.R.drawable.ic_menu_compass, "🍔 Food", createCategoryActionPendingIntent("cat_food"))
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Fallback to standard category actions", e)
+                builder.addAction(android.R.drawable.ic_menu_compass, "🍔 Food", createCategoryActionPendingIntent("cat_food"))
+                builder.addAction(android.R.drawable.ic_menu_add, "🛒 Grocery", createCategoryActionPendingIntent("cat_groceries"))
+                builder.addAction(android.R.drawable.ic_menu_directions, "⛽ Fuel", createCategoryActionPendingIntent("cat_fuel"))
+            }
 
             try {
                 notificationManager.notify(notificationId, builder.build())
@@ -456,7 +527,14 @@ class PaymentNotificationListenerService : NotificationListenerService() {
 
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
-        Log.w(TAG, "PaymentNotificationListenerService disconnected")
+        Log.w(TAG, "PaymentNotificationListenerService disconnected, requesting rebind...")
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                requestRebind(ComponentName(applicationContext, PaymentNotificationListenerService::class.java))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to requestRebind", e)
+        }
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
@@ -507,10 +585,14 @@ class PaymentNotificationListenerService : NotificationListenerService() {
             val lower = combined.lowercase()
             val hasMoneyTerms = lower.contains("debited") || 
                                 lower.contains("paid") || 
+                                lower.contains("sent") ||
                                 lower.contains("spent") ||
+                                lower.contains("trf") ||
+                                lower.contains("transfer") ||
                                 lower.contains("upi") || 
                                 lower.contains("vpa") || 
                                 lower.contains("inr") || 
+                                lower.contains("rs") ||
                                 lower.contains("₹")
             if (!hasMoneyTerms) {
                 return

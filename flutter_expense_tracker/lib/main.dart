@@ -267,12 +267,33 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             // 3. Dynamic custom category typed directly in the notification bar (+ Category)
             if (actionType == 'custom_category_created') {
               final catName = event['categoryName'] as String? ?? 'Custom';
+              final desc = event['description'] as String? ?? '';
               _loadInitialData().then((_) {
                 if (mounted) {
                   setState(() => _pendingNotification = null);
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text('✅ Created & categorized under "$catName"'),
+                      content: Text(
+                        desc.isNotEmpty
+                            ? '✅ Saved under "$catName" • Note: "$desc"'
+                            : '✅ Created & categorized under "$catName"',
+                      ),
+                      backgroundColor: const Color(0xFF0F766E),
+                    ),
+                  );
+                }
+              });
+              return;
+            }
+
+            // 4. Description / Note typed directly in the notification bar (📝 Description)
+            if (actionType == 'description_updated') {
+              final desc = event['description'] as String? ?? '';
+              _loadInitialData().then((_) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('✅ Description saved: "$desc"'),
                       backgroundColor: const Color(0xFF0F766E),
                     ),
                   );
@@ -439,6 +460,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _showAddManualExpenseDialog() {
     final amountController = TextEditingController();
     final merchantController = TextEditingController();
+    final descriptionController = TextEditingController();
     String selectedCatId = _categories.first.id;
     PaymentSource selectedSource = PaymentSource.manual;
 
@@ -481,26 +503,53 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     controller: merchantController,
                     decoration: const InputDecoration(
                       labelText: 'Merchant / Recipient Name',
-                      hintText: 'e.g. Swiggy, Chai Point',
+                      hintText: 'e.g. Swiggy, Indian Oil',
                       border: OutlineInputBorder(),
                     ),
                   ),
                   const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    value: selectedCatId,
+                  TextField(
+                    controller: descriptionController,
                     decoration: const InputDecoration(
-                      labelText: 'Category',
+                      labelText: 'Description / Note (Optional)',
+                      hintText: 'e.g. Ordered LPG gas cylinder',
                       border: OutlineInputBorder(),
                     ),
-                    items: _categories.map((cat) {
-                      return DropdownMenuItem(
-                        value: cat.id,
-                        child: Text(cat.name),
-                      );
-                    }).toList(),
-                    onChanged: (val) {
-                      if (val != null) setModalState(() => selectedCatId = val);
-                    },
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          value: selectedCatId,
+                          decoration: const InputDecoration(
+                            labelText: 'Category',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: _categories.map((cat) {
+                            return DropdownMenuItem(
+                              value: cat.id,
+                              child: Text(cat.name),
+                            );
+                          }).toList(),
+                          onChanged: (val) {
+                            if (val != null) setModalState(() => selectedCatId = val);
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton.filledTonal(
+                        tooltip: 'New Custom Category',
+                        onPressed: () {
+                          _showAddCustomCategoryDialog(
+                            onCreated: (newCat) {
+                              setModalState(() => selectedCatId = newCat.id);
+                            },
+                          );
+                        },
+                        icon: const Icon(Icons.add),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<PaymentSource>(
@@ -524,6 +573,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     onPressed: () {
                       final amount = double.tryParse(amountController.text);
                       final merchant = merchantController.text.trim();
+                      final desc = descriptionController.text.trim();
                       if (amount == null || amount <= 0 || merchant.isEmpty) return;
 
                       final newExpense = Expense(
@@ -534,6 +584,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         timestamp: DateTime.now(),
                         paymentSource: selectedSource,
                         status: TransactionStatus.success,
+                        notes: desc.isNotEmpty ? desc : null,
                         createdAt: DateTime.now(),
                       );
 
@@ -596,7 +647,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _showTransactionDetail(Expense expense) {
-    String currentCatId = expense.categoryId;
+    String currentCatId = _categories.any((c) => c.id == expense.categoryId)
+        ? expense.categoryId
+        : _categories.first.id;
+    final initialNote = (expense.notes != null && !expense.notes!.startsWith('Auto-recorded'))
+        ? expense.notes!
+        : '';
+    final notesController = TextEditingController(text: initialNote);
 
     showModalBottomSheet(
       context: context,
@@ -607,13 +664,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setModalState) {
-            final cat = _categories.firstWhere(
-              (c) => c.id == currentCatId,
-              orElse: () => _categories.first,
-            );
-
             return Padding(
-              padding: const EdgeInsets.all(24),
+              padding: EdgeInsets.only(
+                left: 24,
+                right: 24,
+                top: 24,
+                bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
+              ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -645,30 +702,94 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   ),
                   const Divider(height: 28),
 
-                  // Quick Category Editor
+                  // Quick Category Editor + Custom Category button
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text('Category', style: TextStyle(color: Colors.grey, fontSize: 13)),
-                      DropdownButton<String>(
-                        value: currentCatId,
-                        underline: const SizedBox(),
-                        items: _categories.map((c) => DropdownMenuItem(value: c.id, child: Text(c.name))).toList(),
-                        onChanged: (newCatId) {
-                          if (newCatId != null) {
-                            setModalState(() => currentCatId = newCatId);
-                            final updatedIndex = _expenses.indexWhere((e) => e.id == expense.id);
-                            if (updatedIndex != -1) {
-                              setState(() {
-                                _expenses[updatedIndex] = _expenses[updatedIndex].copyWith(categoryId: newCatId);
-                              });
-                              _persistExpenses();
-                            }
-                          }
-                        },
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          DropdownButton<String>(
+                            value: currentCatId,
+                            underline: const SizedBox(),
+                            items: _categories.map((c) => DropdownMenuItem(value: c.id, child: Text(c.name))).toList(),
+                            onChanged: (newCatId) {
+                              if (newCatId != null) {
+                                setModalState(() => currentCatId = newCatId);
+                                final updatedIndex = _expenses.indexWhere((e) => e.id == expense.id);
+                                if (updatedIndex != -1) {
+                                  setState(() {
+                                    _expenses[updatedIndex] = _expenses[updatedIndex].copyWith(categoryId: newCatId);
+                                  });
+                                  _persistExpenses();
+                                }
+                              }
+                            },
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.add_circle_outline, color: Color(0xFF0F766E), size: 20),
+                            tooltip: 'Add Custom Category',
+                            onPressed: () {
+                              _showAddCustomCategoryDialog(
+                                onCreated: (newCat) {
+                                  setModalState(() => currentCatId = newCat.id);
+                                  final updatedIndex = _expenses.indexWhere((e) => e.id == expense.id);
+                                  if (updatedIndex != -1) {
+                                    setState(() {
+                                      _expenses[updatedIndex] = _expenses[updatedIndex].copyWith(categoryId: newCat.id);
+                                    });
+                                    _persistExpenses();
+                                  }
+                                },
+                              );
+                            },
+                          ),
+                        ],
                       ),
                     ],
                   ),
+
+                  const SizedBox(height: 8),
+                  // Description / Note Editor
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: notesController,
+                          decoration: InputDecoration(
+                            labelText: 'Description / Note',
+                            hintText: 'Add description for this expense...',
+                            isDense: true,
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton(
+                        onPressed: () {
+                          final newNote = notesController.text.trim();
+                          final updatedIndex = _expenses.indexWhere((e) => e.id == expense.id);
+                          if (updatedIndex != -1) {
+                            setState(() {
+                              _expenses[updatedIndex] = _expenses[updatedIndex].copyWith(notes: newNote);
+                            });
+                            _persistExpenses();
+                          }
+                          Navigator.pop(ctx);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('✅ Description saved'),
+                              backgroundColor: Color(0xFF0F766E),
+                            ),
+                          );
+                        },
+                        style: FilledButton.styleFrom(backgroundColor: const Color(0xFF0F766E)),
+                        child: const Text('Save'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
 
                   _detailRow('Date & Time', expense.timestamp.toString().substring(0, 16)),
                   if (expense.referenceId != null)
@@ -1162,6 +1283,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 orElse: () => _categories.first,
               );
 
+              final hasCustomNote = exp.notes != null &&
+                  exp.notes!.trim().isNotEmpty &&
+                  !exp.notes!.startsWith('Auto-recorded');
+
               return Card(
                 margin: const EdgeInsets.only(bottom: 8),
                 child: ListTile(
@@ -1174,9 +1299,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ),
                   ),
                   title: Text(exp.merchant, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                  subtitle: Text(
-                    '${cat.name} • ${exp.paymentSource.displayName}',
-                    style: const TextStyle(fontSize: 11),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${cat.name} • ${exp.paymentSource.displayName}',
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                      if (hasCustomNote)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            '📝 ${exp.notes!}',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF0F766E),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,

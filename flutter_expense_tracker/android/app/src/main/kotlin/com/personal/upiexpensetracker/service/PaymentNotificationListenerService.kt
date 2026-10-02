@@ -138,9 +138,6 @@ class PaymentNotificationListenerService : NotificationListenerService() {
                 referenceId = referenceId,
                 rawText = combinedText
             )
-            if (!isSaved) {
-                return false
-            }
 
             // 8. Trigger Actionable Android Notification with Category & Description Buttons
             val notifId = (System.currentTimeMillis() % 100000).toInt()
@@ -524,7 +521,6 @@ class PaymentNotificationListenerService : NotificationListenerService() {
         isServiceConnected = true
         activeInstance = this
         Log.i(TAG, "PaymentNotificationListenerService connected and active")
-        scanActiveNotificationsNow()
     }
 
     override fun onListenerDisconnected() {

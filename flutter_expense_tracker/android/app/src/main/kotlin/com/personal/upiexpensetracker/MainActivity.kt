@@ -31,6 +31,10 @@ class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         checkAndRequestPostNotificationPermission()
+        ensureNotificationListenerRebound()
+    }
+
+    private fun ensureNotificationListenerRebound() {
         try {
             if (isNotificationAccessGranted() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 NotificationListenerService.requestRebind(
